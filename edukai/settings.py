@@ -75,12 +75,14 @@ THIRD_PARTY_APPS = [
     'rest_framework_simplejwt.token_blacklist',         # For logout functionality
     'drf_spectacular',                                  # DRF Documentation
     'corsheaders',                                      # CORS handling
+    'storages',                                         # For S3/MinIO storage
 ]
 
 LOCAL_APPS = [
     # Add local apps here
     "account",
     "organization",
+    "candidate",
 ]
 
 INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
@@ -160,14 +162,6 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
-
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
-
-MEDIA_URL = os.getenv("MEDIA_URL", "/media/")
-MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
-
 
 AUTH_USER_MODEL = os.getenv("AUTH_USER_MODEL", "account.User")
 
@@ -252,3 +246,83 @@ EMAIL_PORT = env_int(os.getenv("EMAIL_PORT"), 587)
 EMAIL_USE_TLS = env_bool(os.getenv("EMAIL_USE_TLS"), True)
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+
+
+# ===========================================================================
+# Static Files
+# ===========================================================================
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+
+# ===========================================================================
+# MinIO / AWS S3 Storage
+# Django 4.2+ uses STORAGES dict instead of DEFAULT_FILE_STORAGE string.
+# ===========================================================================
+USE_S3 = env_bool(os.getenv("USE_S3"), default=False)
+
+if USE_S3:
+    # ----- Credentials -----
+    AWS_ACCESS_KEY_ID       = os.getenv("MINIO_ACCESS_KEY",    "minioadmin")
+    AWS_SECRET_ACCESS_KEY   = os.getenv("MINIO_SECRET_KEY",    "minioadmin123")
+    AWS_STORAGE_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME",   "edukai")
+    AWS_S3_ENDPOINT_URL     = os.getenv("MINIO_ENDPOINT_URL",  "http://127.0.0.1:9000")
+    AWS_S3_REGION_NAME      = os.getenv("MINIO_REGION",        "us-east-1")
+
+    # ----- MinIO-specific required settings -----
+    AWS_S3_ADDRESSING_STYLE = "path"   # MinIO MUST use path-style, not virtual-hosted
+    AWS_QUERYSTRING_AUTH    = False    # Public URLs — no signed query strings
+    AWS_S3_FILE_OVERWRITE   = False    # Never silently overwrite existing files
+    AWS_DEFAULT_ACL         = None     # Don't send ACL headers (MinIO ignores them)
+
+    AWS_S3_OBJECT_PARAMETERS = {
+        "CacheControl": "max-age=86400",
+    }
+
+    # ----- Django 4.2+ storage config -----
+    STORAGES = {
+        "default": {
+            # ✅ All FileField / ImageField saves go to MinIO
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        },
+        "staticfiles": {
+            # Static files stay local (served by Django/Nginx, not MinIO)
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+
+    # ✅ Use already-assigned variables — not os.getenv() a second time
+    MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/"
+
+else:
+    # ----- Local filesystem fallback -----
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+    MEDIA_URL  = os.getenv("MEDIA_URL",  "/media/")
+    MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
+
+
+# ===========================================================================
+# Celery
+# ===========================================================================
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/2")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/2")
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = TIME_ZONE
+
+# Retry settings for AI polling
+AI_BASE_URL = os.getenv("AI_BASE_URL", "http://127.0.0.1:8001")
+AI_POLL_INTERVAL_SECONDS = env_int(os.getenv("AI_POLL_INTERVAL_SECONDS"), 10)
+AI_POLL_MAX_RETRIES = env_int(os.getenv("AI_POLL_MAX_RETRIES"), 30)
+
+# Logo path for WeasyPrint PDF
+CV_LOGO_PATH = os.getenv("CV_LOGO_PATH", str(BASE_DIR / "media" / "images" / "logo.png"))
