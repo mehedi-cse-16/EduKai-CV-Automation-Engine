@@ -19,7 +19,7 @@ def process_cv_task(self, candidate_id: str, additional_info: dict):
     Task 1 — Called once per CV after upload.
 
     Responsibilities:
-    1. POST the CV's MinIO URL to the AI endpoint
+    1. POST the CV's MinIO pre-signed URL to the AI endpoint
     2. Receive the AI task_id
     3. Save task_id to DB
     4. Trigger the polling task
@@ -32,17 +32,29 @@ def process_cv_task(self, candidate_id: str, additional_info: dict):
         logger.error(f"[process_cv] Candidate {candidate_id} not found.")
         return
 
-    # Build the public MinIO URL for this CV
-    cv_url = candidate.original_cv_file.url if candidate.original_cv_file else None
-    if not cv_url:
+    # -------------------------------------------------------------------------
+    # Build CV URL
+    # ✅ USE_S3=True  → generate pre-signed URL (MinIO requires auth)
+    # ✅ USE_S3=False → use plain local URL (Django dev server serves it)
+    # -------------------------------------------------------------------------
+    if not candidate.original_cv_file:
         candidate.ai_processing_status = AIProcessingStatus.FAILED
         candidate.ai_failure_reason = "No CV file found to send to AI."
         candidate.save(update_fields=["ai_processing_status", "ai_failure_reason"])
         logger.error(f"[process_cv] Candidate {candidate_id} has no CV file.")
         return
 
+    if getattr(settings, "USE_S3", False):
+        # Pre-signed URL — valid for 1 hour (enough time for AI to download)
+        from candidate.utils.minio_utils import get_presigned_url
+        cv_url = get_presigned_url(candidate.original_cv_file, expires_in=3600)
+        logger.info(f"[process_cv] Using pre-signed URL for candidate {candidate_id} with presigned URL: {cv_url}.")
+    else:
+        # Local dev — plain URL served by Django
+        cv_url = candidate.original_cv_file.url
+
     payload = {
-        "cv_url": cv_url,
+        "cv_url":          cv_url,
         "additional_info": additional_info,
     }
 
