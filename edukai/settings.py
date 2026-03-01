@@ -45,20 +45,21 @@ def env_list(val, default=None, sep=","):
     return [v.strip() for v in str(val).split(sep) if v.strip()]
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+# ---------------------------------------------------------------------------
+# Core
+# ---------------------------------------------------------------------------
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is not set!")
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-0d+6r(+du+wi_xq^7(n)vf1$nxb&$#-8l66&kk=jz66*zb#$)v")
+DEBUG = env_bool(os.getenv("DEBUG"), default=False)   # ✅ default False in prod
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env_bool(os.getenv("DEBUG"), default=True)
-
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_list(os.getenv("ALLOWED_HOSTS"), default=[])
 
 
-# Application definition
-
+# ---------------------------------------------------------------------------
+# Applications
+# ---------------------------------------------------------------------------
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -69,17 +70,15 @@ INSTALLED_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
-    # Add third-party apps here
-    'rest_framework',                                   # Django Rest Framework
-    "rest_framework_simplejwt",
-    'rest_framework_simplejwt.token_blacklist',         # For logout functionality
-    'drf_spectacular',                                  # DRF Documentation
-    'corsheaders',                                      # CORS handling
-    'storages',                                         # For S3/MinIO storage
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
+    'drf_spectacular',
+    'corsheaders',
+    'storages',
 ]
 
 LOCAL_APPS = [
-    # Add local apps here
     "account",
     "organization",
     "candidate",
@@ -87,8 +86,12 @@ LOCAL_APPS = [
 
 INSTALLED_APPS += THIRD_PARTY_APPS + LOCAL_APPS
 
+
+# ---------------------------------------------------------------------------
+# Middleware
+# ---------------------------------------------------------------------------
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',            # CORS middleware should be high up
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -118,19 +121,30 @@ TEMPLATES = [
 WSGI_APPLICATION = 'edukai.wsgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# ---------------------------------------------------------------------------
+# Database — PostgreSQL in production, SQLite in dev
+# ---------------------------------------------------------------------------
+if os.getenv("DATABASE_URL"):
+    import dj_database_url
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.getenv("DATABASE_URL"),
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
-# Password validation
-# https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
+# ---------------------------------------------------------------------------
+# Password Validation
+# ---------------------------------------------------------------------------
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -148,35 +162,48 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# Internationalization
-# https://docs.djangoproject.com/en/6.0/topics/i18n/
-
+# ---------------------------------------------------------------------------
+# Internationalisation
+# ---------------------------------------------------------------------------
 LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
-USE_I18N = True
-
-USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.0/howto/static-files/
+TIME_ZONE     = 'UTC'
+USE_I18N      = True
+USE_TZ        = True
 
 AUTH_USER_MODEL = os.getenv("AUTH_USER_MODEL", "account.User")
 
 
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+SECURE_SSL_REDIRECT         = env_bool(os.getenv("SECURE_SSL_REDIRECT"),       default=False)
+SESSION_COOKIE_SECURE       = env_bool(os.getenv("SESSION_COOKIE_SECURE"),      default=False)
+CSRF_COOKIE_SECURE          = env_bool(os.getenv("CSRF_COOKIE_SECURE"),         default=False)
+SECURE_HSTS_SECONDS         = env_int(os.getenv("SECURE_HSTS_SECONDS"),         default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(os.getenv("SECURE_HSTS_INCLUDE_SUBDOMAINS"), default=False)
+SECURE_HSTS_PRELOAD         = env_bool(os.getenv("SECURE_HSTS_PRELOAD"),        default=False)
+SECURE_PROXY_SSL_HEADER     = ("HTTP_X_FORWARDED_PROTO", "https") if not DEBUG else None
+
+
+# ---------------------------------------------------------------------------
+# CORS & CSRF
+# ---------------------------------------------------------------------------
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = env_list(
     os.getenv("CORS_ALLOWED_ORIGINS"),
-    default=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
+    default=["http://localhost:3000", "http://127.0.0.1:3000"],
+)
+
+CSRF_TRUSTED_ORIGINS = env_list(
+    os.getenv("CSRF_TRUSTED_ORIGINS"),
+    default=[],
 )
 
 
+# ---------------------------------------------------------------------------
+# Django REST Framework
+# ---------------------------------------------------------------------------
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'account.authentication.CookieJWTAuthentication',
@@ -189,31 +216,37 @@ REST_FRAMEWORK = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Simple JWT
+# ---------------------------------------------------------------------------
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=env_int(os.getenv("SIMPLE_JWT_ACCESS_TOKEN_HOURS"), 1)),
+    'ACCESS_TOKEN_LIFETIME':  timedelta(hours=env_int(os.getenv("SIMPLE_JWT_ACCESS_TOKEN_HOURS"), 1)),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=env_int(os.getenv("SIMPLE_JWT_REFRESH_TOKEN_DAYS"), 7)),
-    'ROTATE_REFRESH_TOKENS': env_bool(os.getenv("SIMPLE_JWT_ROTATE_REFRESH_TOKENS"), True),
-    'BLACKLIST_AFTER_ROTATION': env_bool(os.getenv("SIMPLE_JWT_BLACKLIST_AFTER_ROTATION"), True),
-
-    "AUTH_HEADER_TYPES": ("Bearer",),       # If changing to "JWT", Then header must be: Authorization: JWT <access_token>
-    "USER_ID_FIELD": "id",                  # UUID primary key
-    "USER_ID_CLAIM": "user_id",
-
-    "AUTH_COOKIE_ACCESS": "access_token",   
-    "REFRESH_COOKIE_NAME": "refresh_token",
-    "REFRESH_COOKIE_PATH": "/api/auth",
+    'ROTATE_REFRESH_TOKENS':      env_bool(os.getenv("SIMPLE_JWT_ROTATE_REFRESH_TOKENS"),      True),
+    'BLACKLIST_AFTER_ROTATION':   env_bool(os.getenv("SIMPLE_JWT_BLACKLIST_AFTER_ROTATION"),    True),
+    "AUTH_HEADER_TYPES":          ("Bearer",),
+    "USER_ID_FIELD":              "id",
+    "USER_ID_CLAIM":              "user_id",
+    "AUTH_COOKIE_ACCESS":         "access_token",
+    "REFRESH_COOKIE_NAME":        "refresh_token",
+    "REFRESH_COOKIE_PATH":        "/api/auth",
 }
 
 
+# ---------------------------------------------------------------------------
+# API Docs (drf-spectacular)
+# ---------------------------------------------------------------------------
 SPECTACULAR_SETTINGS = {
-    'TITLE': os.getenv("SPECTACULAR_TITLE", 'EduKai APIs'),
-    'DESCRIPTION': os.getenv("SPECTACULAR_DESCRIPTION", 'API documentation for EduKai - CV automation engine'),
-    'VERSION': os.getenv("SPECTACULAR_VERSION", '1.0.0'),
+    'TITLE':               os.getenv("SPECTACULAR_TITLE",       'EduKai APIs'),
+    'DESCRIPTION':         os.getenv("SPECTACULAR_DESCRIPTION", 'API documentation for EduKai'),
+    'VERSION':             os.getenv("SPECTACULAR_VERSION",     '1.0.0'),
     'SERVE_INCLUDE_SCHEMA': env_bool(os.getenv("SPECTACULAR_SERVE_INCLUDE_SCHEMA"), False),
 }
 
 
-# Redis cache (use django-redis)
+# ---------------------------------------------------------------------------
+# Redis Cache
+# ---------------------------------------------------------------------------
 REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")
 CACHES = {
     "default": {
@@ -221,39 +254,45 @@ CACHES = {
         "LOCATION": REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            # "PASSWORD": os.getenv("REDIS_PASSWORD", ""),  # if needed
         }
     }
 }
 
 
+# ---------------------------------------------------------------------------
+# App Settings
+# ---------------------------------------------------------------------------
 APP_NAME = os.getenv("APP_NAME", "EduKai")
 
+PASSWORD_RESET_OTP_LENGTH             = env_int(os.getenv("PASSWORD_RESET_OTP_LENGTH"),             6)      
+PASSWORD_RESET_OTP_TTL                = env_int(os.getenv("PASSWORD_RESET_OTP_TTL"),                600)    # 10min
+PASSWORD_RESET_VERIFIED_TTL           = env_int(os.getenv("PASSWORD_RESET_VERIFIED_TTL"),           600)    # 10min
+PASSWORD_RESET_RESEND_COOLDOWN        = env_int(os.getenv("PASSWORD_RESET_RESEND_COOLDOWN"),        60)     # 1min
+PASSWORD_RESET_MAX_REQUESTS_PER_HOUR  = env_int(os.getenv("PASSWORD_RESET_MAX_REQUESTS_PER_HOUR"),  5)
+PASSWORD_RESET_MAX_VERIFY_ATTEMPTS    = env_int(os.getenv("PASSWORD_RESET_MAX_VERIFY_ATTEMPTS"),    5)
+PASSWORD_RESET_OTP_PEPPER             = os.getenv("PASSWORD_RESET_OTP_PEPPER", "change-this-in-production")
 
-PASSWORD_RESET_OTP_LENGTH = env_int(os.getenv("PASSWORD_RESET_OTP_LENGTH"), 6)
-PASSWORD_RESET_OTP_TTL = env_int(os.getenv("PASSWORD_RESET_OTP_TTL"), 600)           # 10 min
-PASSWORD_RESET_VERIFIED_TTL = env_int(os.getenv("PASSWORD_RESET_VERIFIED_TTL"), 600) # 10 min
-PASSWORD_RESET_RESEND_COOLDOWN = env_int(os.getenv("PASSWORD_RESET_RESEND_COOLDOWN"), 60)  # 1 min
-PASSWORD_RESET_MAX_REQUESTS_PER_HOUR = env_int(os.getenv("PASSWORD_RESET_MAX_REQUESTS_PER_HOUR"), 5)
-PASSWORD_RESET_MAX_VERIFY_ATTEMPTS = env_int(os.getenv("PASSWORD_RESET_MAX_VERIFY_ATTEMPTS"), 5)
-PASSWORD_RESET_OTP_PEPPER = os.getenv("PASSWORD_RESET_OTP_PEPPER", "change-this-in-production")
 
-
-DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "noreply@edukai.com")
-EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
-EMAIL_HOST = os.getenv("EMAIL_HOST", "")
-EMAIL_PORT = env_int(os.getenv("EMAIL_PORT"), 587)
-EMAIL_USE_TLS = env_bool(os.getenv("EMAIL_USE_TLS"), True)
-EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+# ---------------------------------------------------------------------------
+# Email
+# ---------------------------------------------------------------------------
+DEFAULT_FROM_EMAIL  = os.getenv("DEFAULT_FROM_EMAIL", "noreply@edukai.com")
+EMAIL_BACKEND       = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST          = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT          = env_int(os.getenv("EMAIL_PORT"), 587)
+EMAIL_USE_TLS       = env_bool(os.getenv("EMAIL_USE_TLS"), True)
+EMAIL_HOST_USER     = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 
 
-# ===========================================================================
+# ---------------------------------------------------------------------------
 # Static Files
-# ===========================================================================
-STATIC_URL = "/static/"
+# ---------------------------------------------------------------------------
+STATIC_URL  = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+# ✅ Only add STATICFILES_DIRS entry if the directory actually exists
+_static_dir = BASE_DIR / "static"
+STATICFILES_DIRS = [_static_dir] if _static_dir.exists() else []
 
 
 # ===========================================================================
@@ -263,66 +302,61 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 USE_S3 = env_bool(os.getenv("USE_S3"), default=False)
 
 if USE_S3:
-    # ----- Credentials -----
-    AWS_ACCESS_KEY_ID       = os.getenv("MINIO_ACCESS_KEY",    "minioadmin")
-    AWS_SECRET_ACCESS_KEY   = os.getenv("MINIO_SECRET_KEY",    "minioadmin123")
-    AWS_STORAGE_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME",   "edukai")
-    AWS_S3_ENDPOINT_URL     = os.getenv("MINIO_ENDPOINT_URL",  "http://127.0.0.1:9000")
-    AWS_S3_REGION_NAME      = os.getenv("MINIO_REGION",        "us-east-1")
+    AWS_ACCESS_KEY_ID       = os.getenv("MINIO_ACCESS_KEY",   "minioadmin")
+    AWS_SECRET_ACCESS_KEY   = os.getenv("MINIO_SECRET_KEY",   "minioadmin123")
+    AWS_STORAGE_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME",  "edukai")
+    AWS_S3_ENDPOINT_URL     = os.getenv("MINIO_ENDPOINT_URL", "http://127.0.0.1:9000")
+    AWS_S3_REGION_NAME      = os.getenv("MINIO_REGION",       "us-east-1")
 
-    # ----- MinIO-specific required settings -----
-    AWS_S3_ADDRESSING_STYLE = "path"   # MinIO MUST use path-style, not virtual-hosted
-    AWS_QUERYSTRING_AUTH    = False    # Public URLs — no signed query strings
-    AWS_S3_FILE_OVERWRITE   = False    # Never silently overwrite existing files
-    AWS_DEFAULT_ACL         = None     # Don't send ACL headers (MinIO ignores them)
+    AWS_S3_ADDRESSING_STYLE = "path"
+    AWS_QUERYSTRING_AUTH    = False
+    AWS_S3_FILE_OVERWRITE   = False
+    AWS_DEFAULT_ACL         = None
 
-    AWS_S3_OBJECT_PARAMETERS = {
-        "CacheControl": "max-age=86400",
-    }
+    AWS_S3_OBJECT_PARAMETERS = {"CacheControl": "max-age=86400"}
 
-    # ----- Django 4.2+ storage config -----
+    # ✅ Public URL uses the EXTERNAL MinIO URL (for browser access)
+    MINIO_PUBLIC_URL        = os.getenv("MINIO_PUBLIC_URL", AWS_S3_ENDPOINT_URL)
+
     STORAGES = {
-        "default": {
-            # ✅ All FileField / ImageField saves go to MinIO
-            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
-        },
-        "staticfiles": {
-            # Static files stay local (served by Django/Nginx, not MinIO)
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-        },
+        "default":     {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
 
-    # ✅ Use already-assigned variables — not os.getenv() a second time
-    MEDIA_URL = f"{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/"
+    MEDIA_URL = f"{MINIO_PUBLIC_URL}/{AWS_STORAGE_BUCKET_NAME}/"
 
 else:
-    # ----- Local filesystem fallback -----
     STORAGES = {
-        "default": {
-            "BACKEND": "django.core.files.storage.FileSystemStorage",
-        },
-        "staticfiles": {
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
-        },
+        "default":     {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
     }
     MEDIA_URL  = os.getenv("MEDIA_URL",  "/media/")
     MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", str(BASE_DIR / "media")))
 
 
-# ===========================================================================
+# ---------------------------------------------------------------------------
 # Celery
-# ===========================================================================
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/2")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/2")
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
+# ---------------------------------------------------------------------------
+CELERY_BROKER_URL        = os.getenv("CELERY_BROKER_URL",    "redis://127.0.0.1:6379/2")
+CELERY_RESULT_BACKEND    = os.getenv("CELERY_RESULT_BACKEND","redis://127.0.0.1:6379/2")
+CELERY_ACCEPT_CONTENT    = ["json"]
+CELERY_TASK_SERIALIZER   = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = TIME_ZONE
+CELERY_TIMEZONE          = TIME_ZONE
 
-# Retry settings for AI polling
-AI_BASE_URL = os.getenv("AI_BASE_URL", "http://127.0.0.1:8001")
+# ---------------------------------------------------------------------------
+# AI Integration
+# ---------------------------------------------------------------------------
+AI_BASE_URL              = os.getenv("AI_BASE_URL",              "http://127.0.0.1:8001")
 AI_POLL_INTERVAL_SECONDS = env_int(os.getenv("AI_POLL_INTERVAL_SECONDS"), 10)
-AI_POLL_MAX_RETRIES = env_int(os.getenv("AI_POLL_MAX_RETRIES"), 30)
+AI_POLL_MAX_RETRIES      = env_int(os.getenv("AI_POLL_MAX_RETRIES"),      30)
 
-# Logo path for WeasyPrint PDF
+# ---------------------------------------------------------------------------
+# PDF Generation
+# ---------------------------------------------------------------------------
 CV_LOGO_PATH = os.getenv("CV_LOGO_PATH", str(BASE_DIR / "media" / "images" / "logo.png"))
+
+# ---------------------------------------------------------------------------
+# Default primary key
+# ---------------------------------------------------------------------------
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
