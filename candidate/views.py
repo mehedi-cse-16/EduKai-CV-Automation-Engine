@@ -118,7 +118,7 @@ class CandidateListView(APIView):
     Returns paginated list of candidates with optional filters.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSuperUser]
 
     @extend_schema(
         responses={200: CandidateListSerializer(many=True)},

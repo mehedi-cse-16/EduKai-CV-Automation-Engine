@@ -38,28 +38,16 @@ class BulkCVUploadSerializer(serializers.Serializer):
         default=list,
     )
 
-    # -------------------------------------------------------------------------
-    # Validators
-    # -------------------------------------------------------------------------
     def validate_experience(self, value):
-        """
-        form-data always sends strings.
-        Accept: "2", "2.0", "1.5", "", None
-        Reject: "abc", "-1", "999"
-        """
         if value in (None, "", "null", "none"):
             return None
         try:
             result = float(value)
         except (ValueError, TypeError):
-            raise serializers.ValidationError(
-                "Enter a valid number. e.g. 2.0, 1.5, 0.5"
-            )
+            raise serializers.ValidationError("Enter a valid number. e.g. 2.0, 1.5, 0.5")
         if result < 0 or result > 60:
-            raise serializers.ValidationError(
-                "Experience must be between 0 and 60."
-            )
-        return result   # returns a float, not a string
+            raise serializers.ValidationError("Experience must be between 0 and 60.")
+        return result
 
     def validate_skills(self, value):
         return self._parse_list_field(value, "skills")
@@ -70,7 +58,6 @@ class BulkCVUploadSerializer(serializers.Serializer):
     def validate_files(self, files):
         allowed_extensions = {"pdf", "doc", "docx"}
         max_size_mb = 10
-
         for f in files:
             ext = f.name.rsplit(".", 1)[-1].lower()
             if ext not in allowed_extensions:
@@ -84,16 +71,10 @@ class BulkCVUploadSerializer(serializers.Serializer):
                 )
         return files
 
-    # -------------------------------------------------------------------------
-    # List field helper — handles repeated keys AND JSON strings
-    # -------------------------------------------------------------------------
     def _parse_list_field(self, value, field_name: str) -> list:
         if not value:
             return []
-
         if isinstance(value, list):
-            # Check if it's a single-item list containing a JSON string
-            # e.g. ['["math", "physics"]']  ← sent as JSON string in one field
             if len(value) == 1 and isinstance(value[0], str):
                 stripped = value[0].strip()
                 if stripped.startswith("["):
@@ -106,9 +87,7 @@ class BulkCVUploadSerializer(serializers.Serializer):
                             f"Invalid JSON array for '{field_name}'. "
                             f'Use: ["val1", "val2"] or send as repeated keys.'
                         )
-            # Normal repeated-key list
             return [str(i).strip() for i in value if str(i).strip()]
-
         if isinstance(value, str):
             stripped = value.strip()
             if stripped.startswith("["):
@@ -121,17 +100,13 @@ class BulkCVUploadSerializer(serializers.Serializer):
                         f"Invalid JSON array for '{field_name}'."
                     )
             return [stripped] if stripped else []
-
         return []
 
-    # -------------------------------------------------------------------------
-    # Output
-    # -------------------------------------------------------------------------
     def get_additional_info(self) -> dict:
         data = self.validated_data
         info = {}
         if data.get("experience") is not None:
-            info["experience"] = data["experience"]     # already a float from validate_experience
+            info["experience"] = data["experience"]
         if data.get("skills"):
             info["skills"] = data["skills"]
         if data.get("job_role"):
@@ -139,8 +114,34 @@ class BulkCVUploadSerializer(serializers.Serializer):
         return info
 
 
-class CandidateListSerializer(serializers.ModelSerializer):
+# =============================================================================
+# ✅ Mixin — reusable pre-signed URL fields for any Candidate serializer
+# =============================================================================
+class CandidateFileMixin:
+    """
+    Adds pre-signed (or local) URLs for:
+      - original_cv_file  → original_cv_url
+      - ai_enhanced_cv_file → enhanced_cv_url
+    """
+
+    def get_original_cv_url(self, obj) -> str | None:
+        from candidate.utils.minio_utils import resolve_file_url
+        return resolve_file_url(obj.original_cv_file)
+
+    def get_enhanced_cv_url(self, obj) -> str | None:
+        from candidate.utils.minio_utils import resolve_file_url
+        return resolve_file_url(obj.ai_enhanced_cv_file)
+
+
+# =============================================================================
+# List Serializer — lightweight, includes CV URLs
+# =============================================================================
+class CandidateListSerializer(CandidateFileMixin, serializers.ModelSerializer):
     """Lightweight serializer for list views."""
+
+    # ✅ These replace the raw FileField values with pre-signed URLs
+    # original_cv_url  = serializers.SerializerMethodField()
+    # enhanced_cv_url  = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
@@ -148,6 +149,7 @@ class CandidateListSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "email",
+            "whatsapp_number",
             "location",
             "years_of_experience",
             "skills",
@@ -155,18 +157,54 @@ class CandidateListSerializer(serializers.ModelSerializer):
             "availability_status",
             "quality_status",
             "ai_processing_status",
+            # "original_cv_url",        # ✅ pre-signed original CV URL
+            # "enhanced_cv_url",        # ✅ pre-signed enhanced CV URL
             "created_at",
         ]
 
 
-class CandidateDetailSerializer(serializers.ModelSerializer):
+# =============================================================================
+# Detail Serializer — full data, includes CV URLs
+# =============================================================================
+class CandidateDetailSerializer(CandidateFileMixin, serializers.ModelSerializer):
     """Full serializer for detail view."""
+
+    # ✅ These replace the raw FileField values with pre-signed URLs
+    original_cv_url  = serializers.SerializerMethodField()
+    enhanced_cv_url  = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
-        fields = "__all__"
+        fields = [
+            "id",
+            "batch",
+            "name",
+            "email",
+            "whatsapp_number",
+            "location",
+            "years_of_experience",
+            "skills",
+            "source",
+            "availability_status",
+            "quality_status",
+            "ai_processing_status",
+            "ai_task_id",
+            "ai_enhanced_cv_content",
+            "ai_failure_reason",
+            "ai_retry_count",
+            "email_subject",
+            "email_body",
+            "notes",
+            "original_cv_url",        # ✅ pre-signed original CV URL
+            "enhanced_cv_url",        # ✅ pre-signed enhanced CV URL
+            "created_at",
+            "updated_at",
+        ]
 
 
+# =============================================================================
+# Batch Serializer
+# =============================================================================
 class UploadBatchSerializer(serializers.ModelSerializer):
     """Serializer for batch status tracking."""
 

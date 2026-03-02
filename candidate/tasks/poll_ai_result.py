@@ -60,9 +60,9 @@ def poll_ai_result_task(self, candidate_id: str, ai_task_id: str):
     ai_status = data.get("status", "")
 
     # Still processing — retry after countdown
-    if ai_status == "processing":
+    if ai_status == "PENDING" or ai_status == "processing":
         logger.info(
-            f"[poll_ai] Task {ai_task_id} still processing. "
+            f"[poll_ai] Task {ai_task_id} still PENDING or processing. "
             f"Attempt {current_attempt + 1}/{max_retries}."
         )
         raise self.retry(countdown=poll_interval)

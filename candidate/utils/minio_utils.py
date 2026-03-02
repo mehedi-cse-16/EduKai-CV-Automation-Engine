@@ -3,7 +3,7 @@ from botocore.client import Config
 from django.conf import settings
 
 
-def get_presigned_url(file_field, expires_in: int = 3600) -> str:
+def get_presigned_url(file_field, expires_in: int | None = None) -> str:
     """
     Generate a pre-signed URL for a MinIO/S3 file field.
 
@@ -14,6 +14,13 @@ def get_presigned_url(file_field, expires_in: int = 3600) -> str:
     Returns:
         A pre-signed URL string that allows temporary public access.
     """
+
+    if expires_in is None:
+        expires_in = settings.PRESIGNED_URL_EXPIRE_SECONDS
+
+    if not file_field or not file_field.name:
+        return None
+    
     s3_client = boto3.client(
         "s3",
         endpoint_url=settings.AWS_S3_ENDPOINT_URL,
@@ -36,3 +43,28 @@ def get_presigned_url(file_field, expires_in: int = 3600) -> str:
     )
 
     return presigned_url
+
+
+def resolve_file_url(file_field, expires_in: int | None = None) -> str | None:
+    """
+    Smart URL resolver:
+    - USE_S3=True  → returns pre-signed MinIO URL
+    - USE_S3=False → returns plain local URL (Django dev server)
+
+    Use this in serializers and views.
+    """
+
+    if expires_in is None:
+        expires_in = settings.PRESIGNED_URL_EXPIRE_SECONDS
+
+    if not file_field or not file_field.name:
+        return None
+
+    if getattr(settings, "USE_S3", False):
+        return get_presigned_url(file_field, expires_in=expires_in)
+    else:
+        # Local filesystem — return plain URL
+        try:
+            return file_field.url
+        except Exception:
+            return None

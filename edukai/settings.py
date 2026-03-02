@@ -317,6 +317,7 @@ if USE_S3:
 
     # ✅ Public URL uses the EXTERNAL MinIO URL (for browser access)
     MINIO_PUBLIC_URL        = os.getenv("MINIO_PUBLIC_URL", AWS_S3_ENDPOINT_URL)
+    PRESIGNED_URL_EXPIRE_SECONDS = int(os.getenv("PRESIGNED_URL_EXPIRE_SECONDS", 86400))
 
     STORAGES = {
         "default":     {"BACKEND": "storages.backends.s3boto3.S3Boto3Storage"},

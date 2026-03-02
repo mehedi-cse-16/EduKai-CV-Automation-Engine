@@ -47,7 +47,7 @@ def process_cv_task(self, candidate_id: str, additional_info: dict):
     if getattr(settings, "USE_S3", False):
         # Pre-signed URL — valid for 1 hour (enough time for AI to download)
         from candidate.utils.minio_utils import get_presigned_url
-        cv_url = get_presigned_url(candidate.original_cv_file, expires_in=3600)
+        cv_url = get_presigned_url(candidate.original_cv_file, expires_in=settings.PRESIGNED_URL_EXPIRE_SECONDS)
         logger.info(f"[process_cv] Using pre-signed URL for candidate {candidate_id} with presigned URL: {cv_url}.")
     else:
         # Local dev — plain URL served by Django
