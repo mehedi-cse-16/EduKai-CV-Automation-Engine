@@ -1,61 +1,71 @@
+import uuid
 import boto3
 from botocore.client import Config
 from django.conf import settings
 
 
-def get_presigned_url(file_field, expires_in: int | None = None) -> str:
-    """
-    Generate a pre-signed URL for a MinIO/S3 file field.
-
-    Args:
-        file_field : A Django FileField instance (e.g. candidate.original_cv_file)
-        expires_in : URL validity in seconds (default: 1 hour)
-
-    Returns:
-        A pre-signed URL string that allows temporary public access.
-    """
-
-    if expires_in is None:
-        expires_in = settings.PRESIGNED_URL_EXPIRE_SECONDS
-
-    if not file_field or not file_field.name:
-        return None
-    
-    s3_client = boto3.client(
+def _get_s3_client():
+    return boto3.client(
         "s3",
         endpoint_url=settings.AWS_S3_ENDPOINT_URL,
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         config=Config(
             signature_version="s3v4",
-            s3={"addressing_style": "path"},   # MinIO MUST use path-style
+            s3={"addressing_style": "path"},
         ),
         region_name=settings.AWS_S3_REGION_NAME,
     )
 
-    presigned_url = s3_client.generate_presigned_url(
+
+def get_presigned_url(file_field, expires_in: int | None = None) -> str | None:
+    """Generate a pre-signed GET URL for any FileField / ImageField."""
+    if expires_in is None:
+        expires_in = getattr(settings, "PRESIGNED_URL_EXPIRE_SECONDS", 3600)
+
+    if not file_field or not file_field.name:
+        return None
+
+    return _get_s3_client().generate_presigned_url(
         ClientMethod="get_object",
         Params={
             "Bucket": settings.AWS_STORAGE_BUCKET_NAME,
-            "Key":    file_field.name,   # e.g. candidates/original/<uuid>/<file>.pdf
+            "Key":    file_field.name,
         },
         ExpiresIn=expires_in,
     )
 
-    return presigned_url
+
+def get_presigned_upload_url(
+    object_key: str,
+    content_type: str = "application/pdf",
+    expires_in: int = 900,
+) -> dict:
+    """Generate a pre-signed PUT URL for direct browser → MinIO uploads."""
+    upload_url = _get_s3_client().generate_presigned_url(
+        ClientMethod="put_object",
+        Params={
+            "Bucket":      settings.AWS_STORAGE_BUCKET_NAME,
+            "Key":         object_key,
+            "ContentType": content_type,
+        },
+        ExpiresIn=expires_in,
+    )
+    return {
+        "upload_url": upload_url,
+        "object_key": object_key,
+        "expires_in": expires_in,
+    }
 
 
 def resolve_file_url(file_field, expires_in: int | None = None) -> str | None:
     """
-    Smart URL resolver:
-    - USE_S3=True  → returns pre-signed MinIO URL
-    - USE_S3=False → returns plain local URL (Django dev server)
-
-    Use this in serializers and views.
+    Works for ANY FileField or ImageField — CVs, profile pics, anything.
+    - USE_S3=True  → pre-signed MinIO URL
+    - USE_S3=False → plain local Django URL
     """
-
     if expires_in is None:
-        expires_in = settings.PRESIGNED_URL_EXPIRE_SECONDS
+        expires_in = getattr(settings, "PRESIGNED_URL_EXPIRE_SECONDS", 3600)
 
     if not file_field or not file_field.name:
         return None
@@ -63,8 +73,17 @@ def resolve_file_url(file_field, expires_in: int | None = None) -> str | None:
     if getattr(settings, "USE_S3", False):
         return get_presigned_url(file_field, expires_in=expires_in)
     else:
-        # Local filesystem — return plain URL
         try:
             return file_field.url
         except Exception:
             return None
+
+
+def build_cv_object_key(candidate_id: str, filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower()
+    return f"candidates/original/{candidate_id}/{uuid.uuid4().hex}.{ext}"
+
+
+def build_enhanced_cv_object_key(candidate_id: str, filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower()
+    return f"candidates/enhanced/{candidate_id}/{uuid.uuid4().hex}.{ext}"

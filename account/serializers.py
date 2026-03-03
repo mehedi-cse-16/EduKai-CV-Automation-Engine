@@ -133,9 +133,8 @@ class CookieTokenRefreshSerializer(serializers.Serializer):
 # User Profile (Read)
 # ---------------------------------------------------------------------------
 class UserProfileSerializer(serializers.ModelSerializer):
-    """Read-only serializer for returning user profile data."""
-
     full_name = serializers.CharField(read_only=True)
+    profile_pic_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -147,12 +146,16 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "full_name",
             "gender",
             "country",
-            "profile_pic",
+            "profile_pic_url",
             "role",
             "date_joined",
             "updated_at",
         ]
-        read_only_fields = fields  # All read-only in this serializer
+        read_only_fields = fields
+
+    def get_profile_pic_url(self, obj) -> str | None:
+        from candidate.utils.minio_utils import resolve_file_url
+        return resolve_file_url(obj.profile_pic)
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +166,7 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     Allows authenticated users to update their profile information.
     Email & role cannot be changed.
     """
-
+    
     class Meta:
         model = User
         fields = [

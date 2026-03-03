@@ -215,9 +215,5 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-
-# Media files
-media/
-
 # Client private files
 .Client Resources/

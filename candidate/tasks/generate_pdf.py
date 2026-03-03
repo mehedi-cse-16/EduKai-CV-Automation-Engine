@@ -1,6 +1,6 @@
 import logging
 import os
-import platform
+from pathlib import Path
 
 from celery import shared_task
 from django.conf import settings
@@ -48,11 +48,8 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str):
         "interests":            data_extracted.get("interests", ""),
     }
 
-    logo_path = getattr(settings, "CV_LOGO_PATH", "")
-    if logo_path and os.path.exists(logo_path):
-        logo_url = "file:///" + logo_path.replace("\\", "/")
-    else:
-        logo_url = ""
+    logo_url = _resolve_logo_url()
+    logger.info(f"[generate_pdf] Logo URL resolved: '{logo_url or 'NOT FOUND — skipping logo'}'")
 
     context = {
         "cv":        cv_context,
@@ -122,6 +119,44 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str):
         candidate.batch.save(update_fields=["processed_count", "updated_at"])
 
     logger.info(f"[generate_pdf] ✅ PDF generated and saved for candidate {candidate_id}.")
+
+
+def _resolve_logo_url() -> str:
+    """
+    Resolves the logo file path to a file:// URI for WeasyPrint.
+
+    Priority:
+      1. CV_LOGO_PATH from settings/.env  (explicit override)
+      2. <BASE_DIR>/media/images/CV_logo.png  (convention default)
+      3. <BASE_DIR>/media/images/logo.png     (fallback name)
+
+    Returns "" if no logo file is found anywhere.
+    """
+    candidates = []
+
+    # 1. Explicit setting from .env
+    explicit = getattr(settings, "CV_LOGO_PATH", "")
+    if explicit:
+        candidates.append(str(explicit))
+
+    # 2. Convention-based paths relative to BASE_DIR
+    base = Path(settings.BASE_DIR)
+    candidates.append(str(base / "media" / "images" / "CV_logo.png"))
+    candidates.append(str(base / "media" / "images" / "logo.png"))
+
+    for path_str in candidates:
+        path = Path(path_str)
+        if path.exists() and path.is_file():
+            # ✅ Path.as_uri() always produces correct file:///... format
+            uri = path.as_uri()
+            logger.debug(f"[generate_pdf] Logo found at: {path_str} → {uri}")
+            return uri
+
+    logger.warning(
+        f"[generate_pdf] Logo not found. Tried:\n" +
+        "\n".join(f"  - {p}" for p in candidates)
+    )
+    return ""
 
 
 # ---------------------------------------------------------------------------
