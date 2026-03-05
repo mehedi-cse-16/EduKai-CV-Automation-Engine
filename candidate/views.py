@@ -211,13 +211,14 @@ class CandidateDetailView(APIView):
 class CandidateDeleteView(APIView):
     """
     DELETE /api/candidates/<candidate_id>/delete/
-    Deletes candidate from DB + both CV files from MinIO.
+    Deletes candidate from DB instantly.
+    MinIO file cleanup happens async via Celery.
     """
     permission_classes = [IsAuthenticated, IsSuperUser]
 
     @extend_schema(
         responses={
-            204: OpenApiResponse(description="Candidate deleted successfully"),
+            200: OpenApiResponse(description="Candidate deleted successfully"),
             404: OpenApiResponse(description="Candidate not found"),
         },
         summary="Delete a candidate and their MinIO files",
@@ -233,30 +234,49 @@ class CandidateDeleteView(APIView):
             )
 
         name = candidate.name or str(candidate_id)
-        candidate.delete()   # ✅ triggers post_delete signal → cleans MinIO
 
-        logger.info(f"[delete] Candidate '{name}' ({candidate_id}) deleted with MinIO files.")
+        # ✅ Collect file keys BEFORE deleting (after delete they're gone from instance)
+        file_keys = [
+            k for k in [
+                candidate.original_cv_file.name  if candidate.original_cv_file  else None,
+                candidate.ai_enhanced_cv_file.name if candidate.ai_enhanced_cv_file else None,
+            ]
+            if k
+        ]
+
+        # ✅ Delete DB record instantly — no waiting for MinIO
+        candidate.delete()
+
+        # ✅ Clean up MinIO async — won't block the response
+        if file_keys:
+            from candidate.tasks.cleanup import cleanup_minio_files_task
+            cleanup_minio_files_task.apply_async(args=[file_keys])
+
+        logger.info(
+            f"[delete] Candidate '{name}' ({candidate_id}) DB deleted. "
+            f"MinIO cleanup queued for {len(file_keys)} file(s)."
+        )
 
         return Response(
-            {"message": f"Candidate '{name}' and all associated files deleted."},
-            status=status.HTTP_204_NO_CONTENT,
+            {
+                "message": f"Candidate '{name}' deleted. "
+                           f"{len(file_keys)} file(s) queued for MinIO cleanup.",
+            },
+            status=status.HTTP_200_OK,
         )
 
 
 class BatchDeleteView(APIView):
     """
     DELETE /api/candidates/batches/<batch_id>/delete/
-    Deletes batch + ALL candidates in it + ALL their MinIO files.
-
-    ⚠️  This can delete hundreds of candidates at once.
-        CASCADE on FK ensures all candidates are deleted.
-        post_delete signal fires for each one → MinIO files cleaned up.
+    Deletes batch + ALL candidates instantly.
+    MinIO cleanup for ALL files happens async via Celery.
     """
     permission_classes = [IsAuthenticated, IsSuperUser]
 
     @extend_schema(
         responses={
-            204: OpenApiResponse(description="Batch and all candidates deleted"),
+            200: OpenApiResponse(description="Batch and all candidates deleted"),
             404: OpenApiResponse(description="Batch not found"),
         },
         summary="Delete a batch and all its candidates + MinIO files",
@@ -271,17 +291,39 @@ class BatchDeleteView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        candidate_count = batch.candidates.count()
-        batch.delete()   # ✅ CASCADE → deletes all candidates → signal → MinIO cleanup
+        # ✅ Collect ALL file keys from ALL candidates BEFORE any deletion
+        file_keys = []
+        candidates = batch.candidates.all()
+        candidate_count = candidates.count()
+
+        for candidate in candidates:
+            if candidate.original_cv_file and candidate.original_cv_file.name:
+                file_keys.append(candidate.original_cv_file.name)
+            if candidate.ai_enhanced_cv_file and candidate.ai_enhanced_cv_file.name:
+                file_keys.append(candidate.ai_enhanced_cv_file.name)
+
+        # ✅ Delete DB records instantly (CASCADE deletes all candidates too)
+        # post_delete signal is now disconnected from MinIO cleanup
+        # so this is fast — pure DB operation only
+        batch.delete()
+
+        # ✅ Queue MinIO cleanup as a single async Celery task
+        # Uses S3 batch delete_objects — deletes 1000 files per API call
+        if file_keys:
+            from candidate.tasks.cleanup import cleanup_minio_files_task
+            cleanup_minio_files_task.apply_async(args=[file_keys])
 
         logger.info(
             f"[delete] Batch {batch_id} deleted. "
-            f"{candidate_count} candidates and their MinIO files removed."
+            f"{candidate_count} candidates removed from DB. "
+            f"MinIO cleanup queued for {len(file_keys)} file(s)."
         )
 
-        return Response(
+        return Response(                              # ✅ 200 so body is always visible
             {
-                "message": f"Batch and {candidate_count} candidate(s) deleted with all MinIO files.",
+                "message":         f"Batch deleted successfully.",
+                "candidates_deleted": candidate_count,
+                "files_queued":    len(file_keys),
             },
-            status=status.HTTP_204_NO_CONTENT,
+            status=status.HTTP_200_OK,
         )

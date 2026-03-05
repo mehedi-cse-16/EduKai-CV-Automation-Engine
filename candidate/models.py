@@ -259,22 +259,28 @@ class Candidate(models.Model):
 #   - CASCADE delete when batch is deleted
 # ---------------------------------------------------------------------------
 @receiver(post_delete, sender=Candidate)
-def delete_candidate_files_from_minio(sender, instance, **kwargs):
-    """
-    Automatically deletes MinIO files when a Candidate record is deleted.
-    Handles both original CV and AI-enhanced CV PDF.
-    """
-    _delete_file(instance.original_cv_file,  "original CV")
-    _delete_file(instance.ai_enhanced_cv_file, "enhanced CV")
+def log_candidate_deletion(sender, instance, **kwargs):
+    logger.info(
+        f"[signal] Candidate {instance.id} ({instance.name!r}) "
+        f"deleted from DB."
+    )
+
+# def delete_candidate_files_from_minio(sender, instance, **kwargs):
+#     """
+#     Automatically deletes MinIO files when a Candidate record is deleted.
+#     Handles both original CV and AI-enhanced CV PDF.
+#     """
+#     _delete_file(instance.original_cv_file,  "original CV")
+#     _delete_file(instance.ai_enhanced_cv_file, "enhanced CV")
 
 
-def _delete_file(file_field, label: str) -> None:
-    """Safely delete a single FileField from storage (MinIO or local)."""
-    if not file_field or not file_field.name:
-        return
-    try:
-        file_field.delete(save=False)   # delete from MinIO, don't save model
-        logger.info(f"[delete_signal] ✅ Deleted {label}: {file_field.name}")
-    except Exception as exc:
-        # Never block the DB delete — log and continue
-        logger.error(f"[delete_signal] ❌ Failed to delete {label} ({file_field.name}): {exc}")
+# def _delete_file(file_field, label: str) -> None:
+#     """Safely delete a single FileField from storage (MinIO or local)."""
+#     if not file_field or not file_field.name:
+#         return
+#     try:
+#         file_field.delete(save=False)   # delete from MinIO, don't save model
+#         logger.info(f"[delete_signal] ✅ Deleted {label}: {file_field.name}")
+#     except Exception as exc:
+#         # Never block the DB delete — log and continue
+#         logger.error(f"[delete_signal] ❌ Failed to delete {label} ({file_field.name}): {exc}")
