@@ -220,3 +220,59 @@ class UploadBatchSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+
+class UploadBatchSerializer(serializers.ModelSerializer):
+    """Serializer for batch status tracking."""
+
+    # ✅ Computed fields — useful for frontend progress bars
+    progress_percentage = serializers.SerializerMethodField()
+    status              = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CandidateUploadBatch
+        fields = [
+            "id",
+            "additional_info",
+            "total_count",
+            "processed_count",
+            "failed_count",
+            "progress_percentage",   # ✅ e.g. 75
+            "status",                # ✅ e.g. "in_progress" / "completed" / "partial"
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_progress_percentage(self, obj) -> int:
+        """
+        Returns integer percentage of successfully processed CVs.
+        e.g. 3 processed out of 4 total → 75
+        """
+        if not obj.total_count:
+            return 0
+        return int((obj.processed_count / obj.total_count) * 100)
+
+    def get_status(self, obj) -> str:
+        """
+        Derives batch status from counts:
+          completed → all CVs processed successfully
+          partial   → some failed, some succeeded
+          failed    → all failed
+          in_progress → still processing (none done yet or still running)
+        """
+        if obj.total_count == 0:
+            return "empty"
+
+        finished = obj.processed_count + obj.failed_count
+
+        if finished < obj.total_count:
+            return "in_progress"
+
+        # All finished — determine outcome
+        if obj.failed_count == 0:
+            return "completed"
+        elif obj.processed_count == 0:
+            return "failed"
+        else:
+            return "partial"   # some passed, some failed

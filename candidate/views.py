@@ -87,6 +87,41 @@ class BulkCVUploadView(APIView):
         )
 
 
+class BatchListView(APIView):
+    """
+    GET /api/candidates/batches/
+    Returns all upload batches with optional filters.
+
+    Query params:
+        ?ordering=created_at        → oldest first
+        ?ordering=-created_at       → newest first (default)
+    """
+
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={200: UploadBatchSerializer(many=True)},
+        summary="List all upload batches",
+        tags=["Candidates"],
+    )
+    def get(self, request):
+        qs = CandidateUploadBatch.objects.all()
+
+        # Optional ordering
+        ordering = request.query_params.get("ordering", "-created_at")
+        allowed_orderings = {
+            "created_at", "-created_at",
+            "total_count", "-total_count",
+            "processed_count", "-processed_count",
+            "failed_count", "-failed_count",
+        }
+        if ordering in allowed_orderings:
+            qs = qs.order_by(ordering)
+
+        serializer = UploadBatchSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
 class BatchStatusView(APIView):
     """
     GET /api/candidates/batches/<batch_id>/
@@ -171,3 +206,82 @@ class CandidateDetailView(APIView):
 
         serializer = CandidateDetailSerializer(candidate)
         return Response(serializer.data)
+
+
+class CandidateDeleteView(APIView):
+    """
+    DELETE /api/candidates/<candidate_id>/delete/
+    Deletes candidate from DB + both CV files from MinIO.
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Candidate deleted successfully"),
+            404: OpenApiResponse(description="Candidate not found"),
+        },
+        summary="Delete a candidate and their MinIO files",
+        tags=["Candidates"],
+    )
+    def delete(self, request, candidate_id):
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        name = candidate.name or str(candidate_id)
+        candidate.delete()   # ✅ triggers post_delete signal → cleans MinIO
+
+        logger.info(f"[delete] Candidate '{name}' ({candidate_id}) deleted with MinIO files.")
+
+        return Response(
+            {"message": f"Candidate '{name}' and all associated files deleted."},
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+class BatchDeleteView(APIView):
+    """
+    DELETE /api/candidates/batches/<batch_id>/delete/
+    Deletes batch + ALL candidates in it + ALL their MinIO files.
+
+    ⚠️  This can delete hundreds of candidates at once.
+        CASCADE on FK ensures all candidates are deleted.
+        post_delete signal fires for each one → MinIO files cleaned up.
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={
+            204: OpenApiResponse(description="Batch and all candidates deleted"),
+            404: OpenApiResponse(description="Batch not found"),
+        },
+        summary="Delete a batch and all its candidates + MinIO files",
+        tags=["Candidates"],
+    )
+    def delete(self, request, batch_id):
+        try:
+            batch = CandidateUploadBatch.objects.get(id=batch_id)
+        except CandidateUploadBatch.DoesNotExist:
+            return Response(
+                {"detail": "Batch not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        candidate_count = batch.candidates.count()
+        batch.delete()   # ✅ CASCADE → deletes all candidates → signal → MinIO cleanup
+
+        logger.info(
+            f"[delete] Batch {batch_id} deleted. "
+            f"{candidate_count} candidates and their MinIO files removed."
+        )
+
+        return Response(
+            {
+                "message": f"Batch and {candidate_count} candidate(s) deleted with all MinIO files.",
+            },
+            status=status.HTTP_204_NO_CONTENT,
+        )
