@@ -6,7 +6,9 @@ from rest_framework import serializers
 
 from candidate.models import Candidate, CandidateUploadBatch
 
-
+# =============================================================================
+# Bulk Upload Serializer — for validating the initial batch upload request
+# =============================================================================
 class BulkCVUploadSerializer(serializers.Serializer):
 
     files = serializers.ListField(
@@ -115,7 +117,7 @@ class BulkCVUploadSerializer(serializers.Serializer):
 
 
 # =============================================================================
-# ✅ Mixin — reusable pre-signed URL fields for any Candidate serializer
+# Mixin — reusable pre-signed URL fields for any Candidate serializer
 # =============================================================================
 class CandidateFileMixin:
     """
@@ -208,71 +210,60 @@ class CandidateDetailSerializer(CandidateFileMixin, serializers.ModelSerializer)
 class UploadBatchSerializer(serializers.ModelSerializer):
     """Serializer for batch status tracking."""
 
-    class Meta:
-        model = CandidateUploadBatch
-        fields = [
-            "id",
-            "additional_info",
-            "total_count",
-            "processed_count",
-            "failed_count",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
-class UploadBatchSerializer(serializers.ModelSerializer):
-    """Serializer for batch status tracking."""
-
-    # ✅ Computed fields — useful for frontend progress bars
     progress_percentage = serializers.SerializerMethodField()
     status              = serializers.SerializerMethodField()
+    active_count        = serializers.SerializerMethodField()
+    deleted_count       = serializers.SerializerMethodField()
 
     class Meta:
         model = CandidateUploadBatch
         fields = [
             "id",
             "additional_info",
-            "total_count",
-            "processed_count",
-            "failed_count",
-            "progress_percentage",   # ✅ e.g. 75
-            "status",                # ✅ e.g. "in_progress" / "completed" / "partial"
+            "total_count",          # original upload count — never changes (audit trail)
+            "processed_count",      # AI completed successfully
+            "failed_count",         # AI failed
+            "active_count",         # currently in DB (decreases on manual delete)
+            "deleted_count",        # manually deleted since upload
+            "progress_percentage",  # 0-100 integer
+            "status",               # in_progress / completed / partial / failed / empty
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
 
     def get_progress_percentage(self, obj) -> int:
-        """
-        Returns integer percentage of successfully processed CVs.
-        e.g. 3 processed out of 4 total → 75
-        """
+        """0-100 integer. Based on AI processed count vs total uploaded."""
         if not obj.total_count:
             return 0
         return int((obj.processed_count / obj.total_count) * 100)
 
     def get_status(self, obj) -> str:
         """
-        Derives batch status from counts:
-          completed → all CVs processed successfully
-          partial   → some failed, some succeeded
-          failed    → all failed
-          in_progress → still processing (none done yet or still running)
+        in_progress → AI still working
+        completed   → all processed, none failed
+        partial     → some processed, some failed
+        failed      → all failed
+        empty       → no CVs in batch
         """
         if obj.total_count == 0:
             return "empty"
 
         finished = obj.processed_count + obj.failed_count
-
         if finished < obj.total_count:
             return "in_progress"
 
-        # All finished — determine outcome
         if obj.failed_count == 0:
             return "completed"
         elif obj.processed_count == 0:
             return "failed"
         else:
-            return "partial"   # some passed, some failed
+            return "partial"
+
+    def get_active_count(self, obj) -> int:
+        """Candidates currently in DB for this batch."""
+        return obj.candidates.count()
+
+    def get_deleted_count(self, obj) -> int:
+        """Candidates manually deleted from this batch since upload."""
+        return max(0, obj.total_count - obj.candidates.count())
