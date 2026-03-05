@@ -7,6 +7,7 @@ from candidate.views import (
     CandidateDetailView,
     CandidateDeleteView,
     CandidateListView,
+    CandidateUpdateView,
 )
 
 app_name = "candidate"
@@ -15,6 +16,7 @@ urlpatterns = [
     path("",                                    CandidateListView.as_view(),   name="candidate_list"),
     path("upload/",                             BulkCVUploadView.as_view(),    name="bulk_upload"),
     path("<uuid:candidate_id>/",                CandidateDetailView.as_view(), name="candidate_detail"),
+    path("<uuid:candidate_id>/update/",         CandidateUpdateView.as_view(), name="candidate_update"),
     path("<uuid:candidate_id>/delete/",         CandidateDeleteView.as_view(), name="candidate_delete"),
 
 

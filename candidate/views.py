@@ -18,6 +18,7 @@ from candidate.serializers import (
     CandidateDetailSerializer,
     CandidateListSerializer,
     UploadBatchSerializer,
+    CandidateUpdateSerializer,
 )
 from candidate.tasks.process_cv import process_cv_task
 
@@ -325,5 +326,65 @@ class BatchDeleteView(APIView):
                 "candidates_deleted": candidate_count,
                 "files_queued":    len(file_keys),
             },
+            status=status.HTTP_200_OK,
+        )
+
+
+class CandidateUpdateView(APIView):
+    """
+    PATCH /api/candidates/<candidate_id>/update/
+
+    Partially update editable candidate fields.
+    All fields are optional — only send what you want to change.
+
+    ✅ Editable:  name, email, whatsapp_number, location,
+                  years_of_experience, skills, source,
+                  availability_status, quality_status,
+                  email_subject, email_body, notes
+
+    ❌ NOT editable via this endpoint:
+                  id, batch, created_at, updated_at,
+                  ai_processing_status, ai_task_id,
+                  ai_enhanced_cv_content, ai_enhanced_cv_file,
+                  ai_failure_reason, ai_retry_count,
+                  original_cv_file  (use separate CV upload flow)
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        request=CandidateUpdateSerializer,
+        responses={
+            200: CandidateDetailSerializer,
+            400: OpenApiResponse(description="Validation error"),
+            404: OpenApiResponse(description="Candidate not found"),
+        },
+        summary="Partially update candidate information",
+        tags=["Candidates"],
+    )
+    def patch(self, request, candidate_id):
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CandidateUpdateSerializer(
+            candidate,
+            data=request.data,
+            partial=True,           # ✅ all fields optional
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()           # calls update() internally
+
+        logger.info(
+            f"[update] Candidate {candidate_id} updated. "
+            f"Fields changed: {list(serializer.validated_data.keys())}"
+        )
+
+        # ✅ Return full detail response so frontend gets updated pre-signed URLs too
+        return Response(
+            CandidateDetailSerializer(candidate, context={"request": request}).data,
             status=status.HTTP_200_OK,
         )

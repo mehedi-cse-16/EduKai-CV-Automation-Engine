@@ -267,3 +267,88 @@ class UploadBatchSerializer(serializers.ModelSerializer):
     def get_deleted_count(self, obj) -> int:
         """Candidates manually deleted from this batch since upload."""
         return max(0, obj.total_count - obj.candidates.count())
+
+
+# =============================================================================
+# Update Serializer — for human operators to edit candidate info (PATCH)
+# =============================================================================
+class CandidateUpdateSerializer(serializers.ModelSerializer):
+    """
+    PATCH /api/candidates/<id>/update/
+
+    Only exposes fields a human operator should be able to edit.
+    AI fields, file fields, and system fields are intentionally excluded.
+    All fields are optional (partial=True used in view).
+    """
+
+    class Meta:
+        model = Candidate
+        fields = [
+            # Personal info
+            # "name",
+            # "email",
+            # "whatsapp_number",
+            # "location",
+
+            # Professional info
+            # "years_of_experience",
+            # "skills",
+
+            # Recruitment status
+            "source",
+            "availability_status",
+            "quality_status",
+
+            # Email content
+            "email_subject",
+            "email_body",
+
+            # Internal notes
+            "notes",
+        ]
+
+    # -------------------------------------------------------------------------
+    # Field-level validation
+    # -------------------------------------------------------------------------
+    def validate_years_of_experience(self, value):
+        if value is not None and (value < 0 or value > 60):
+            raise serializers.ValidationError(
+                "Years of experience must be between 0 and 60."
+            )
+        return value
+
+    def validate_skills(self, value):
+        """Ensure skills is always a list of non-empty strings."""
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Skills must be a list.")
+        cleaned = [str(s).strip() for s in value if str(s).strip()]
+        return cleaned
+
+    def validate_email(self, value):
+        """Email is unique — make sure it doesn't clash with another candidate."""
+        if value:
+            qs = Candidate.objects.filter(email__iexact=value)
+            # Exclude current instance (for update)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    "A candidate with this email already exists."
+                )
+        return value
+
+    def validate_availability_status(self, value):
+        valid = [c[0] for c in Candidate.availability_status.field.choices]
+        if value not in valid:
+            raise serializers.ValidationError(
+                f"Invalid availability status. Choose from: {valid}"
+            )
+        return value
+
+    def validate_quality_status(self, value):
+        valid = [c[0] for c in Candidate.quality_status.field.choices]
+        if value not in valid:
+            raise serializers.ValidationError(
+                f"Invalid quality status. Choose from: {valid}"
+            )
+        return value
