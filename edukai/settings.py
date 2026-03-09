@@ -186,6 +186,15 @@ SECURE_PROXY_SSL_HEADER     = ("HTTP_X_FORWARDED_PROTO", "https") if not DEBUG e
 
 
 # ---------------------------------------------------------------------------
+# Cookie SameSite
+# ---------------------------------------------------------------------------
+# Default "Lax" is secure for production (same-domain).
+# Set to "None" ONLY in dev when frontend runs on a different origin.
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE    = os.getenv("CSRF_COOKIE_SAMESITE", "Lax")
+
+
+# ---------------------------------------------------------------------------
 # CORS & CSRF
 # ---------------------------------------------------------------------------
 CORS_ALLOW_CREDENTIALS = True
