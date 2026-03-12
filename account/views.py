@@ -139,29 +139,30 @@ class TokenRefreshView(APIView):
 
         response = Response({"message": "Token refreshed successfully."}, status=status.HTTP_200_OK)
 
+        is_secure = getattr(settings, "SESSION_COOKIE_SECURE", False)
+        samesite  = getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax")
+
         # Always set the new access token cookie
-        from django.conf import settings
         response.set_cookie(
             key=settings.SIMPLE_JWT.get("AUTH_COOKIE_ACCESS", "access_token"),
             value=data["access"],
             max_age=int(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()),
             httponly=True,
-            secure=not settings.DEBUG,
-            samesite="Lax",
+            secure=is_secure,
+            samesite=samesite,
             path="/",
         )
 
         # If refresh token was rotated, set the new one too
         if "refresh" in data:
-            from django.conf import settings as s
             response.set_cookie(
-                key=s.SIMPLE_JWT.get("REFRESH_COOKIE_NAME", "refresh_token"),
+                key=settings.SIMPLE_JWT.get("REFRESH_COOKIE_NAME", "refresh_token"),
                 value=data["refresh"],
-                max_age=int(s.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
+                max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
                 httponly=True,
-                secure=not settings.DEBUG,
-                samesite="Lax",
-                path=s.SIMPLE_JWT.get("REFRESH_COOKIE_PATH", "/api/auth"),
+                secure=is_secure,
+                samesite=samesite,
+                path=settings.SIMPLE_JWT.get("REFRESH_COOKIE_PATH", "/api/auth"),
             )
 
         return response

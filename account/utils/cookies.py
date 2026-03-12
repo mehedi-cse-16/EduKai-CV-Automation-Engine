@@ -6,7 +6,8 @@ def set_auth_cookies(response, access_token: str, refresh_token: str) -> None:
     Sets both access and refresh tokens as HttpOnly, Secure cookies.
     This prevents XSS attacks — JavaScript cannot read these cookies.
     """
-    is_secure = not settings.DEBUG  # Only Secure flag on HTTPS (production)
+    is_secure = getattr(settings, "SESSION_COOKIE_SECURE", False)
+    samesite  = getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax")
 
     # Access Token Cookie
     response.set_cookie(
@@ -15,7 +16,7 @@ def set_auth_cookies(response, access_token: str, refresh_token: str) -> None:
         max_age=int(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds()),
         httponly=True,          # Not accessible via JavaScript
         secure=is_secure,       # Only sent over HTTPS in production
-        samesite="Lax",         # Protects against CSRF while allowing normal navigation
+        samesite=samesite,      # Protects against CSRF while allowing normal navigation
         path="/",
     )
 
@@ -26,7 +27,7 @@ def set_auth_cookies(response, access_token: str, refresh_token: str) -> None:
         max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
         httponly=True,
         secure=is_secure,
-        samesite="Lax",
+        samesite=samesite,
         path=settings.SIMPLE_JWT.get("REFRESH_COOKIE_PATH", "/api/auth"),
     )
 
