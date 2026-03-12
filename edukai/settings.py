@@ -188,8 +188,8 @@ SECURE_PROXY_SSL_HEADER     = ("HTTP_X_FORWARDED_PROTO", "https") if not DEBUG e
 # ---------------------------------------------------------------------------
 # Cookie SameSite
 # ---------------------------------------------------------------------------
-SESSION_COOKIE_SAMESITE = "None"
-CSRF_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE    = os.getenv("CSRF_COOKIE_SAMESITE",    "Lax")
 
 
 # ---------------------------------------------------------------------------
@@ -216,10 +216,10 @@ REST_FRAMEWORK = {
         'account.authentication.CookieJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
 
-        """
-        SessionAuthentication enforces CSRF on POST/PATCH/PUT/DELETE
-        which breaks cookie-based JWT auth in browsers
-        """
+        
+        # SessionAuthentication enforces CSRF on POST/PATCH/PUT/DELETE
+        # which breaks cookie-based JWT auth in browsers
+        
         # 'rest_framework.authentication.SessionAuthentication',
         # 'rest_framework.authentication.BasicAuthentication',
     ],
