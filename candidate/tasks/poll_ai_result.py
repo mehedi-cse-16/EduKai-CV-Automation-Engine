@@ -59,23 +59,33 @@ def poll_ai_result_task(self, candidate_id: str, ai_task_id: str):
 
     ai_status = data.get("status", "")
 
-    # Still processing — retry after countdown
-    if ai_status == "PENDING" or ai_status == "processing":
+    # ── Status sets based on actual AI route.py response ──────────────────
+    PENDING_STATUSES = {"PENDING", "STARTED", "RETRY"}   # keep polling
+    FAILED_STATUSES  = {"failed", "FAILURE"}              # mark as failed
+
+    if ai_status in PENDING_STATUSES:
         logger.info(
-            f"[poll_ai] Task {ai_task_id} still PENDING or processing. "
+            f"[poll_ai] Task {ai_task_id} status='{ai_status}' — still in progress. "
             f"Attempt {current_attempt + 1}/{max_retries}."
         )
         raise self.retry(countdown=poll_interval)
 
-    # Failed on AI side
-    if ai_status != "completed":
-        logger.error(f"[poll_ai] Task {ai_task_id} returned unexpected status: {ai_status}")
+    if ai_status in FAILED_STATUSES:
+        logger.error(f"[poll_ai] Task {ai_task_id} failed on AI side. Status: {ai_status}")
         Candidate.objects.filter(id=candidate_id).update(
             ai_processing_status=AIProcessingStatus.FAILED,
-            ai_failure_reason=f"AI returned status: {ai_status}",
+            ai_failure_reason=f"AI returned failed status: {ai_status}",
         )
         _update_batch_failed(candidate_id)
         return
+
+    if ai_status != "completed":
+        # Truly unknown — log and keep polling rather than killing the candidate
+        logger.warning(
+            f"[poll_ai] Task {ai_task_id} unknown status: '{ai_status}'. "
+            f"Continuing to poll. Attempt {current_attempt + 1}/{max_retries}."
+        )
+        raise self.retry(countdown=poll_interval)
 
     # -------------------------------------------------------------------------
     # Completed — extract and save data
