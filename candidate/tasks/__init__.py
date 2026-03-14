@@ -5,11 +5,13 @@
 from candidate.tasks.process_cv import process_cv_task
 from candidate.tasks.poll_ai_result import poll_ai_result_task
 from candidate.tasks.generate_pdf import generate_enhanced_cv_pdf_task
-from candidate.tasks.cleanup import cleanup_minio_files_task 
+from candidate.tasks.cleanup import cleanup_minio_files_task
+from candidate.tasks.sync_batch import sync_batch_counts
 
 __all__ = [
     "process_cv_task",
     "poll_ai_result_task",
     "generate_enhanced_cv_pdf_task",
     "cleanup_minio_files_task",
+    "sync_batch_counts",
 ]

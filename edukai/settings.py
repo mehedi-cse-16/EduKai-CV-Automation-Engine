@@ -166,7 +166,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalisation
 # ---------------------------------------------------------------------------
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE     = 'UTC'
+TIME_ZONE = 'Europe/London'
 USE_I18N      = True
 USE_TZ        = True
 
@@ -361,13 +361,55 @@ CELERY_TIMEZONE          = TIME_ZONE
 # AI Integration
 # ---------------------------------------------------------------------------
 AI_BASE_URL              = os.getenv("AI_BASE_URL",              "http://127.0.0.1:8001")
-AI_POLL_INTERVAL_SECONDS = env_int(os.getenv("AI_POLL_INTERVAL_SECONDS"), 10)
-AI_POLL_MAX_RETRIES      = env_int(os.getenv("AI_POLL_MAX_RETRIES"),      30)
+AI_POLL_INTERVAL_SECONDS = env_int(os.getenv("AI_POLL_INTERVAL_SECONDS"), 20)
+AI_POLL_MAX_RETRIES      = env_int(os.getenv("AI_POLL_MAX_RETRIES"),      15)
 
 # ---------------------------------------------------------------------------
 # PDF Generation
 # ---------------------------------------------------------------------------
 CV_LOGO_PATH = os.getenv("CV_LOGO_PATH", str(BASE_DIR / "media" / "images" / "logo.png"))
+
+
+# ---------------------------------------------------------------------------
+# Upload limits
+# ---------------------------------------------------------------------------
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
+
+# ---------------------------------------------------------------------------
+# Celery Task Routing — separate queues per task type
+# ---------------------------------------------------------------------------
+CELERY_TASK_QUEUES = {
+    "default": {},
+    "polling": {},
+    "pdf":     {},
+}
+CELERY_TASK_DEFAULT_QUEUE = "default"
+
+CELERY_TASK_ROUTES = {
+    "candidate.tasks.process_cv":    {"queue": "default"},
+    "candidate.tasks.poll_ai_result": {"queue": "polling"},
+    "candidate.tasks.generate_pdf":  {"queue": "pdf"},
+}
+
+CELERY_TASK_ANNOTATIONS = {
+    "candidate.tasks.process_cv": {
+        "rate_limit": "20/m",   # max 20 AI calls per minute
+    },
+    "candidate.tasks.generate_pdf": {
+        "rate_limit": "10/m",   # WeasyPrint is heavy
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Celery Beat — periodic batch sync
+# ---------------------------------------------------------------------------
+CELERY_BEAT_SCHEDULE = {
+    "sync-batch-counts": {
+        "task": "candidate.tasks.sync_batch_counts",
+        "schedule": 300,  # every 5 minutes
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Default primary key

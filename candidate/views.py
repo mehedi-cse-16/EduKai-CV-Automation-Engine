@@ -64,7 +64,7 @@ class BulkCVUploadView(APIView):
         logger.info(f"[upload] Batch {batch.id} created with {batch.total_count} CVs.")
 
         candidates_created = 0
-        for cv_file in validated_files:
+        for index, cv_file in enumerate(validated_files):
             candidate = Candidate.objects.create(
                 batch=batch,
                 source=SourceChoices.LOCAL_UPLOAD,
@@ -74,7 +74,8 @@ class BulkCVUploadView(APIView):
 
             process_cv_task.apply_async(
                 args=[str(candidate.id), additional_info],
-                countdown=0,
+                countdown=index * 2,
+                queue="default",
             )
 
         logger.info(f"[upload] Batch {batch.id}: {candidates_created} tasks queued.")

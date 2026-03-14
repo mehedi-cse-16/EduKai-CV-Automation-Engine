@@ -93,4 +93,5 @@ def process_cv_task(self, candidate_id: str, additional_info: dict):
     poll_ai_result_task.apply_async(
         args=[candidate_id, ai_task_id],
         countdown=settings.AI_POLL_INTERVAL_SECONDS,
+        queue="polling",
     )

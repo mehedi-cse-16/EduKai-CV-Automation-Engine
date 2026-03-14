@@ -129,7 +129,10 @@ def poll_ai_result_task(self, candidate_id: str, ai_task_id: str):
 
     # Trigger PDF generation task
     from candidate.tasks.generate_pdf import generate_enhanced_cv_pdf_task
-    generate_enhanced_cv_pdf_task.apply_async(args=[candidate_id])
+    generate_enhanced_cv_pdf_task.apply_async(
+        args=[candidate_id],
+        queue="pdf",
+    )
 
 
 # ---------------------------------------------------------------------------
