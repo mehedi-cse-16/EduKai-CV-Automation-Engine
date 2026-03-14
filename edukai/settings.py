@@ -76,6 +76,7 @@ THIRD_PARTY_APPS = [
     'drf_spectacular',
     'corsheaders',
     'storages',
+    'django_celery_beat',
 ]
 
 LOCAL_APPS = [
