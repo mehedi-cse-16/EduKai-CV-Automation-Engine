@@ -10,6 +10,7 @@ from candidate.models import Candidate, CandidateUploadBatch
 # =============================================================================
 @admin.register(CandidateUploadBatch)
 class CandidateUploadBatchAdmin(admin.ModelAdmin):
+
     list_display = (
         "id",
         "total_count",
@@ -36,7 +37,6 @@ class CandidateUploadBatchAdmin(admin.ModelAdmin):
             return "0%"
         percent = int((obj.processed_count / obj.total_count) * 100)
         return f"{percent}%"
-
 
 
 # =============================================================================
@@ -83,17 +83,23 @@ class CandidateAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
 
     # -------------------------------------------------------------------------
-    # Detail View — Fieldsets
+    # Readonly Fields
     # -------------------------------------------------------------------------
     readonly_fields = (
         "id",
         "created_at",
         "updated_at",
         "skills_preview",
+        "job_titles_preview",
         "ai_enhanced_cv_content_preview",
+        "profile_photo_preview",
     )
 
+    # -------------------------------------------------------------------------
+    # Detail View
+    # -------------------------------------------------------------------------
     fieldsets = (
+
         ("Batch Information", {
             "fields": ("batch",),
         }),
@@ -105,6 +111,8 @@ class CandidateAdmin(admin.ModelAdmin):
                 "email",
                 "whatsapp_number",
                 "location",
+                "profile_photo",
+                "profile_photo_preview",
             ),
         }),
 
@@ -113,6 +121,8 @@ class CandidateAdmin(admin.ModelAdmin):
                 "years_of_experience",
                 "skills",
                 "skills_preview",
+                "job_titles",
+                "job_titles_preview",
             ),
         }),
 
@@ -127,6 +137,7 @@ class CandidateAdmin(admin.ModelAdmin):
         ("CV Files", {
             "fields": (
                 "original_cv_file",
+                "ai_enhanced_cv_file",
             ),
         }),
 
@@ -138,7 +149,6 @@ class CandidateAdmin(admin.ModelAdmin):
                 "ai_failure_reason",
                 "ai_enhanced_cv_content",
                 "ai_enhanced_cv_content_preview",
-                "ai_enhanced_cv_file",
             ),
         }),
 
@@ -227,6 +237,17 @@ class CandidateAdmin(admin.ModelAdmin):
             formatted,
         )
 
+    @admin.display(description="Job Titles Preview")
+    def job_titles_preview(self, obj):
+        if not obj.job_titles:
+            return "—"
+        formatted = json.dumps(obj.job_titles, indent=2)
+        return format_html(
+            '<pre style="background:#f8f9fa;padding:10px;border-radius:4px;'
+            'font-size:12px;max-height:200px;overflow:auto;">{}</pre>',
+            formatted,
+        )
+
     @admin.display(description="AI Enhanced CV Content Preview")
     def ai_enhanced_cv_content_preview(self, obj):
         if not obj.ai_enhanced_cv_content:
@@ -236,6 +257,18 @@ class CandidateAdmin(admin.ModelAdmin):
             '<pre style="background:#f8f9fa;padding:10px;border-radius:4px;'
             'font-size:12px;max-height:300px;overflow:auto;">{}</pre>',
             formatted,
+        )
+
+    # -------------------------------------------------------------------------
+    # Profile Photo Preview
+    # -------------------------------------------------------------------------
+    @admin.display(description="Profile Photo")
+    def profile_photo_preview(self, obj):
+        if not obj.profile_photo:
+            return "—"
+        return format_html(
+            '<img src="{}" style="height:120px;border-radius:6px;" />',
+            obj.profile_photo.url
         )
 
     # -------------------------------------------------------------------------

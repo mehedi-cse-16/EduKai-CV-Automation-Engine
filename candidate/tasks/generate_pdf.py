@@ -40,7 +40,7 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str):
     # -------------------------------------------------------------------------
     cv_context = {
         "name":                 data_extracted.get("name", ""),
-        "role":                 data_extracted.get("role", ""),
+        "role":                 " | ".join(data_extracted.get("role", [])) if isinstance(data_extracted.get("role"), list) else data_extracted.get("role", ""),
         "location":             data_extracted.get("location", ""),
         "professional_profile": data_extracted.get("professional_profile", ""),
         "employment_history":   data_extracted.get("employment_history", []),
@@ -119,6 +119,23 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str):
         candidate.batch.save(update_fields=["processed_count", "updated_at"])
 
     logger.info(f"[generate_pdf] ✅ PDF generated and saved for candidate {candidate_id}.")
+
+    # ── Send availability email if candidate has an email address ─────────
+    if candidate.email:
+        from candidate.tasks.send_email import send_availability_email_task
+        send_availability_email_task.apply_async(
+            args=[candidate_id],
+            queue="default",
+            countdown=5,   # small delay to avoid hammering SendGrid
+        )
+        logger.info(
+            f"[generate_pdf] Availability email queued for candidate {candidate_id}."
+        )
+    else:
+        logger.info(
+            f"[generate_pdf] No email found for candidate {candidate_id}. "
+            f"Skipping availability email."
+        )
 
 
 def _resolve_logo_url() -> str:

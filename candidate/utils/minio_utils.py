@@ -143,3 +143,8 @@ def build_cv_object_key(candidate_id: str, filename: str) -> str:
 def build_enhanced_cv_object_key(candidate_id: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower()
     return f"candidates/enhanced/{candidate_id}/{uuid.uuid4().hex}.{ext}"
+
+
+def build_profile_photo_object_key(candidate_id: str, filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower()
+    return f"candidates/photos/{candidate_id}/{uuid.uuid4().hex}.{ext}"

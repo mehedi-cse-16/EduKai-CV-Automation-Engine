@@ -24,6 +24,12 @@ def candidate_enhanced_cv_upload_path(instance, filename):
     return f"candidates/enhanced/{instance.id}/{uuid.uuid4().hex}.{ext}"
 
 
+def candidate_profile_photo_upload_path(instance, filename):
+    """Profile photo: candidates/photos/<uuid>/<filename>"""
+    ext = filename.split(".")[-1]
+    return f"candidates/photos/{instance.id}/{uuid.uuid4().hex}.{ext}"
+
+
 # ---------------------------------------------------------------------------
 # Choices
 # ---------------------------------------------------------------------------
@@ -164,6 +170,26 @@ class Candidate(models.Model):
         default=QualityStatus.PENDING,
         db_index=True,
     )
+
+    # -------------------------------------------------------------------------
+    # Profile Photo (extracted by AI — may be null if CV has no photo)
+    # -------------------------------------------------------------------------
+    profile_photo = models.ImageField(
+        upload_to=candidate_profile_photo_upload_path,
+        null=True,
+        blank=True,
+        help_text="Profile photo stored in MinIO. Extracted by AI or uploaded manually.",
+    )
+
+    # -------------------------------------------------------------------------
+    # Job Titles (extracted by AI from data_extracted.role)
+    # -------------------------------------------------------------------------
+    job_titles = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Example: ["Math Teacher", "Science Teacher", "English Teacher"]',
+    )
+
 
     # -------------------------------------------------------------------------
     # CV Files

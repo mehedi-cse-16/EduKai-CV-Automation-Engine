@@ -133,6 +133,10 @@ class CandidateFileMixin:
     def get_enhanced_cv_url(self, obj) -> str | None:
         from candidate.utils.minio_utils import resolve_file_url
         return resolve_file_url(obj.ai_enhanced_cv_file)
+    
+    def get_profile_photo_url(self, obj) -> str | None:
+        from candidate.utils.minio_utils import resolve_file_url
+        return resolve_file_url(obj.profile_photo)
 
 
 # =============================================================================
@@ -144,6 +148,7 @@ class CandidateListSerializer(CandidateFileMixin, serializers.ModelSerializer):
     # ✅ These replace the raw FileField values with pre-signed URLs
     # original_cv_url  = serializers.SerializerMethodField()
     # enhanced_cv_url  = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
@@ -155,6 +160,8 @@ class CandidateListSerializer(CandidateFileMixin, serializers.ModelSerializer):
             "location",
             "years_of_experience",
             "skills",
+            "job_titles",
+            "profile_photo_url",
             "source",
             "availability_status",
             "quality_status",
@@ -174,6 +181,7 @@ class CandidateDetailSerializer(CandidateFileMixin, serializers.ModelSerializer)
     # ✅ These replace the raw FileField values with pre-signed URLs
     original_cv_url  = serializers.SerializerMethodField()
     enhanced_cv_url  = serializers.SerializerMethodField()
+    profile_photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidate
@@ -186,6 +194,8 @@ class CandidateDetailSerializer(CandidateFileMixin, serializers.ModelSerializer)
             "location",
             "years_of_experience",
             "skills",
+            "job_titles",
+            "profile_photo_url",
             "source",
             "availability_status",
             "quality_status",

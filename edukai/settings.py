@@ -412,6 +412,15 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+
+# ---------------------------------------------------------------------------
+# SendGrid
+# ---------------------------------------------------------------------------
+SENDGRID_API_KEY    = os.getenv("SENDGRID_API_KEY", "")
+SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "")
+SENDGRID_FROM_NAME  = os.getenv("SENDGRID_FROM_NAME", "Education Specialists Agency")
+
+
 # ---------------------------------------------------------------------------
 # Default primary key
 # ---------------------------------------------------------------------------
