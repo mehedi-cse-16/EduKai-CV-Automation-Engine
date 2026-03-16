@@ -5,6 +5,9 @@ from organization.views import (
     ContactListCreateView,
     ContactDetailView,
     AllContactsListView,
+    ImportOrganizationsView,
+    ImportContactsView,
+    ImportStatusView,
 )
 
 app_name = "organization"
@@ -12,6 +15,11 @@ app_name = "organization"
 urlpatterns = [
     # Organization CRUD
     path("", OrganizationListCreateView.as_view(), name="organization_list_create"),
+
+    # Import Organizations and Contacts
+    path("import/", ImportOrganizationsView.as_view(), name="import_organizations"),
+    path("import/contacts/", ImportContactsView.as_view(), name="import_contacts"),
+    path("import/status/<str:task_id>/", ImportStatusView.as_view(), name="import_status"),
 
     # All contacts — must be before <uuid:org_id>/ to avoid conflict
     path("contacts/", AllContactsListView.as_view(), name="all_contacts_list"),

@@ -1,3 +1,7 @@
+import os
+import tempfile
+from rest_framework.parsers import MultiPartParser, FormParser
+
 from django.shortcuts import render
 from organization.tasks.geocode import geocode_organization_task
 from django.db import models
@@ -364,3 +368,172 @@ class ContactDetailView(APIView):
             {"message": f"Contact '{email}' deleted."},
             status=status.HTTP_200_OK,
         )
+
+
+#=============================================================================
+# Excel file upload for organizatin and contacts  Views
+#=============================================================================
+class ImportOrganizationsView(APIView):
+    """
+    POST /api/organizations/import/
+    Upload an Excel file to bulk import organizations.
+    Runs as a background Celery task.
+    Returns task_id to poll for results.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        request={"multipart/form-data": {"type": "object", "properties": {
+            "file": {"type": "string", "format": "binary"}
+        }}},
+        responses={202: OpenApiResponse(description="Import started")},
+        summary="Import organizations from Excel file",
+        tags=["Organizations"],
+    )
+    def post(self, request):
+        file = request.FILES.get("file")
+
+        if not file:
+            return Response(
+                {"detail": "No file provided. Send file as multipart/form-data."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Validate file type ────────────────────────────────────────────
+        if not file.name.endswith(".xlsx"):
+            return Response(
+                {"detail": "Only .xlsx files are supported."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Save file to temp location for Celery to access ───────────────
+        suffix = f"_org_import_{file.name}"
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=suffix
+        ) as tmp:
+            for chunk in file.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        # ── Queue import task ─────────────────────────────────────────────
+        from organization.tasks.import_excel import import_organizations_task
+        task = import_organizations_task.apply_async(
+            args=[tmp_path],
+            queue="default",
+        )
+
+        logger.info(
+            f"[import_org] Organization import queued. "
+            f"File: '{file.name}', Task: {task.id}"
+        )
+
+        return Response(
+            {
+                "message": "Organization import started.",
+                "task_id": task.id,
+                "note":    "Poll /api/organizations/import/status/<task_id>/ for results.",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ImportContactsView(APIView):
+    """
+    POST /api/organizations/import/contacts/
+    Upload an Excel file to bulk import contacts.
+    Organizations must be imported first.
+    """
+    parser_classes = [MultiPartParser, FormParser]
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        request={"multipart/form-data": {"type": "object", "properties": {
+            "file": {"type": "string", "format": "binary"}
+        }}},
+        responses={202: OpenApiResponse(description="Import started")},
+        summary="Import contacts from Excel file",
+        tags=["Organization Contacts"],
+    )
+    def post(self, request):
+        file = request.FILES.get("file")
+
+        if not file:
+            return Response(
+                {"detail": "No file provided. Send file as multipart/form-data."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not file.name.endswith(".xlsx"):
+            return Response(
+                {"detail": "Only .xlsx files are supported."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        suffix = f"_contact_import_{file.name}"
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=suffix
+        ) as tmp:
+            for chunk in file.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        from organization.tasks.import_excel import import_contacts_task
+        task = import_contacts_task.apply_async(
+            args=[tmp_path],
+            queue="default",
+        )
+
+        logger.info(
+            f"[import_contact] Contact import queued. "
+            f"File: '{file.name}', Task: {task.id}"
+        )
+
+        return Response(
+            {
+                "message": "Contact import started.",
+                "task_id": task.id,
+                "note":    "Poll /api/organizations/import/status/<task_id>/ for results.",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ImportStatusView(APIView):
+    """
+    GET /api/organizations/import/status/<task_id>/
+    Poll for import task results.
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Task status and summary")},
+        summary="Get import task status and summary",
+        tags=["Organizations"],
+    )
+    def get(self, request, task_id):
+        from celery.result import AsyncResult
+        result = AsyncResult(task_id)
+
+        if result.state == "PENDING":
+            return Response({
+                "status":  "pending",
+                "message": "Import is still in progress.",
+            })
+
+        if result.state == "FAILURE":
+            return Response({
+                "status": "failed",
+                "error":  str(result.result),
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if result.state == "SUCCESS":
+            return Response({
+                "status":  "completed",
+                "summary": result.result,
+            })
+
+        return Response({
+            "status":  result.state.lower(),
+            "message": "Import is processing.",
+        })
