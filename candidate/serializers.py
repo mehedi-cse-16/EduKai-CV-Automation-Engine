@@ -178,10 +178,10 @@ class CandidateListSerializer(CandidateFileMixin, serializers.ModelSerializer):
 class CandidateDetailSerializer(CandidateFileMixin, serializers.ModelSerializer):
     """Full serializer for detail view."""
 
-    # ✅ These replace the raw FileField values with pre-signed URLs
-    original_cv_url  = serializers.SerializerMethodField()
-    enhanced_cv_url  = serializers.SerializerMethodField()
+    original_cv_url   = serializers.SerializerMethodField()
+    enhanced_cv_url   = serializers.SerializerMethodField()
     profile_photo_url = serializers.SerializerMethodField()
+    cv_status_message = serializers.SerializerMethodField()  # 👈 new
 
     class Meta:
         model = Candidate
@@ -207,11 +207,29 @@ class CandidateDetailSerializer(CandidateFileMixin, serializers.ModelSerializer)
             "email_subject",
             "email_body",
             "notes",
-            "original_cv_url",        # ✅ pre-signed original CV URL
-            "enhanced_cv_url",        # ✅ pre-signed enhanced CV URL
+            "original_cv_url",
+            "enhanced_cv_url",        # null when CV is regenerating
+            "cv_status_message",      # 👈 new — message when regenerating, null otherwise
             "created_at",
             "updated_at",
         ]
+
+    def _is_regenerating(self) -> bool:
+        """Check if CV regeneration was triggered in this request."""
+        request = self.context.get("request")
+        return bool(request and getattr(request, "_cv_regenerating", False))
+
+    def get_cv_status_message(self, obj) -> str | None:
+        if self._is_regenerating():
+            return "CV is being regenerated, please allow a few moments."
+        return None
+
+    def get_enhanced_cv_url(self, obj) -> str | None:
+        # ✅ Hide stale PDF URL while regeneration is in progress
+        if self._is_regenerating():
+            return None
+        from candidate.utils.minio_utils import resolve_file_url
+        return resolve_file_url(obj.ai_enhanced_cv_file)
 
 
 # =============================================================================
@@ -279,47 +297,59 @@ class UploadBatchSerializer(serializers.ModelSerializer):
         return max(0, obj.total_count - obj.candidates.count())
 
 
-# =============================================================================
-# Update Serializer — for human operators to edit candidate info (PATCH)
-# =============================================================================
 class CandidateUpdateSerializer(serializers.ModelSerializer):
     """
     PATCH /api/candidates/<id>/update/
 
-    Only exposes fields a human operator should be able to edit.
-    AI fields, file fields, and system fields are intentionally excluded.
-    All fields are optional (partial=True used in view).
+    Editable fields:
+        profile_photo, years_of_experience, skills, job_titles,
+        availability_status, quality_status, email_subject, email_body,
+        source, name, email, whatsapp_number, location, notes
+
+    After save, if job_titles changed → regenerate PDF automatically.
     """
 
     class Meta:
         model = Candidate
         fields = [
             # Personal info
-            # "name",
-            # "email",
-            # "whatsapp_number",
-            # "location",
-
+            "name",
+            "email",
+            "whatsapp_number",
+            "location",
             # Professional info
-            # "years_of_experience",
-            # "skills",
-
+            "years_of_experience",
+            "skills",
+            "job_titles",
+            # Profile photo
+            "profile_photo",
             # Recruitment status
             "source",
             "availability_status",
             "quality_status",
-
             # Email content
             "email_subject",
             "email_body",
-
             # Internal notes
             "notes",
         ]
+        extra_kwargs = {
+            "profile_photo":        {"required": False},
+            "years_of_experience":  {"required": False},
+            "skills":               {"required": False},
+            "job_titles":           {"required": False},
+            "source":               {"required": False},
+            "availability_status":  {"required": False},
+            "quality_status":       {"required": False},
+            "email_subject":        {"required": False},
+            "email_body":           {"required": False},
+            "notes":                {"required": False},
+            "name":                 {"required": False},
+            "email":                {"required": False},
+            "whatsapp_number":      {"required": False},
+            "location":             {"required": False},
+        }
 
-    # -------------------------------------------------------------------------
-    # Field-level validation
-    # -------------------------------------------------------------------------
     def validate_years_of_experience(self, value):
         if value is not None and (value < 0 or value > 60):
             raise serializers.ValidationError(
@@ -328,17 +358,18 @@ class CandidateUpdateSerializer(serializers.ModelSerializer):
         return value
 
     def validate_skills(self, value):
-        """Ensure skills is always a list of non-empty strings."""
         if not isinstance(value, list):
             raise serializers.ValidationError("Skills must be a list.")
-        cleaned = [str(s).strip() for s in value if str(s).strip()]
-        return cleaned
+        return [str(s).strip() for s in value if str(s).strip()]
+
+    def validate_job_titles(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("Job titles must be a list.")
+        return [str(s).strip() for s in value if str(s).strip()]
 
     def validate_email(self, value):
-        """Email is unique — make sure it doesn't clash with another candidate."""
         if value:
             qs = Candidate.objects.filter(email__iexact=value)
-            # Exclude current instance (for update)
             if self.instance:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():

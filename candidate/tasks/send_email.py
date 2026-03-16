@@ -5,53 +5,81 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-AVAILABILITY_EMAIL_SUBJECT = "Are you looking for a new challenge?"
+AVAILABILITY_EMAIL_SUBJECT = "New Opportunity — Are You Available?"
 
 AVAILABILITY_EMAIL_PLAIN = """
 Are you looking for a new challenge?
 
-Schools need passionate, reliable, and inspiring Educators & Support Staff now more than ever.
-If you're ready for your next opportunity, we're ready for you!
+Schools need passionate, reliable, and inspiring Educators and Support Staff
+now more than ever. If you're ready for your next opportunity, we are ready
+for you!
 
 WE ARE THE EDUCATION SPECIALISTS AGENCY
 
 Whether you're looking for flexibility, progression, or your next temp role,
 let's get you placed where you can truly shine.
 
-Interested? Drop me a quick email with:
+Interested? Reply to this email with:
 - Your availability (what date can you start?)
 - Full-time or part-time preference?
 - Your location?
 - Job title(s) you're looking for?
 
-Up to £250 refer-a-friend bonus! (T&Cs apply)
+Up to 250 pounds refer-a-friend bonus! (T&Cs apply)
 
-Tag or share with friends, family & colleagues.
+Share with friends, family and colleagues.
 Your next role could be one message away.
+
+Education Specialists Agency
+kai.smith@edukai.co.uk
 """
 
 AVAILABILITY_EMAIL_BODY = """
-<p>✨ <strong>Are you looking for a new challenge?</strong> ✨</p>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; font-size: 14px; color: #222; max-width: 600px; margin: 0 auto; padding: 20px;">
 
-<p>Schools need passionate, reliable, and inspiring Educators &amp; Support Staff now more than ever.
-If you're ready for your next opportunity, we're ready for you!</p>
+  <p>Are you looking for a new challenge?</p>
 
-<p>🔊 <strong>WE ARE THE EDUCATION SPECIALISTS AGENCY</strong> 📚👨🏿‍🏫👩🏼‍🏫🏫</p>
+  <p>
+    Schools need passionate, reliable, and inspiring
+    <strong>Educators &amp; Support Staff</strong> now more than ever.
+    If you are ready for your next opportunity, we are ready for you!
+  </p>
 
-<p>Whether you're looking for flexibility, progression, or your next temp role —
-let's get you placed where you can truly shine 🌟</p>
+  <p><strong>WE ARE THE EDUCATION SPECIALISTS AGENCY</strong></p>
 
-<p>📩 <strong>Interested? Drop me a quick email with:</strong><br>
-📅 Your availability (what date can you start?)<br>
-🕒 Full-time or part-time preference?<br>
-📍 Your location?<br>
-🎯 Job title(s) you're looking for?</p>
+  <p>
+    Whether you are looking for flexibility, progression, or your next temp role,
+    let us get you placed where you can truly shine.
+  </p>
 
-<p>💷 <strong>Up to £250 refer-a-friend bonus!</strong> 💷 (T&amp;Cs apply)</p>
+  <p><strong>Interested? Reply to this email with:</strong></p>
+  <ul>
+    <li>Your availability — what date can you start?</li>
+    <li>Full-time or part-time preference?</li>
+    <li>Your location?</li>
+    <li>Job title(s) you are looking for?</li>
+  </ul>
 
-<p>Tag or share with friends, family &amp; colleagues 📱📞📧🤝</p>
+  <p>
+    <strong>Up to &pound;250 refer-a-friend bonus!</strong> (T&amp;Cs apply)
+  </p>
 
-<p>Your next role could be one message away. 🚀</p>
+  <p>Share with friends, family &amp; colleagues.</p>
+  <p>Your next role could be one message away.</p>
+
+  <br>
+  <p style="color: #555; font-size: 12px;">
+    Education Specialists Agency<br>
+    <a href="mailto:kai.smith@edukai.co.uk">kai.smith@edukai.co.uk</a>
+  </p>
+
+</body>
+</html>
 """
 
 
@@ -63,9 +91,9 @@ let's get you placed where you can truly shine 🌟</p>
 )
 def send_availability_email_task(self, candidate_id: str):
     """
-    Task — Sends availability email to candidate via SendGrid.
-    Only called when AI extraction found a valid email address.
-    Availability status is NOT touched — managed manually by the user.
+    Sends availability email to candidate via SendGrid.
+    From:     job@edukai.co.uk  (domain-authenticated sender)
+    Reply-To: kai.smith@edukai.co.uk  (replies go to system owner)
     """
     from candidate.models import Candidate
 
@@ -83,7 +111,6 @@ def send_availability_email_task(self, candidate_id: str):
         logger.error(f"[send_email] Candidate {candidate_id} not found.")
         return
 
-    # ── Guard: skip if no email found by AI ──────────────────────────────
     if not candidate.email:
         logger.info(
             f"[send_email] Candidate {candidate_id} has no email. Skipping."
@@ -94,7 +121,7 @@ def send_availability_email_task(self, candidate_id: str):
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import (
             Mail, From, To, Subject,
-            HtmlContent, PlainTextContent,
+            HtmlContent, PlainTextContent, ReplyTo,
         )
 
         message = Mail(
@@ -104,6 +131,13 @@ def send_availability_email_task(self, candidate_id: str):
             plain_text_content=PlainTextContent(AVAILABILITY_EMAIL_PLAIN),
             html_content=HtmlContent(AVAILABILITY_EMAIL_BODY),
         )
+
+        # ✅ Replies go to kai.smith@edukai.co.uk not job@edukai.co.uk
+        if settings.SENDGRID_REPLY_TO_EMAIL:
+            message.reply_to = ReplyTo(
+                email=settings.SENDGRID_REPLY_TO_EMAIL,
+                name=settings.SENDGRID_REPLY_TO_NAME or None,
+            )
 
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
         response = sg.send(message)

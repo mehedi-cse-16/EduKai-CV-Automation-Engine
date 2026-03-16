@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
     default_retry_delay=15,
     name="candidate.tasks.generate_pdf",
 )
-def generate_enhanced_cv_pdf_task(self, candidate_id: str):
+def generate_enhanced_cv_pdf_task(self, candidate_id: str, is_regeneration: bool = False):
     from candidate.models import Candidate, AIProcessingStatus
 
     try:
@@ -36,12 +36,20 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str):
 
     # -------------------------------------------------------------------------
     # Build template context
-    # ✅ availability intentionally excluded — managed manually by system owner
+    # ✅ Editable fields → read from Candidate model (reflects latest edits)
+    # ✅ AI-only fields  → read from ai_enhanced_cv_content (never edited)
     # -------------------------------------------------------------------------
     cv_context = {
-        "name":                 data_extracted.get("name", ""),
-        "role":                 " | ".join(data_extracted.get("role", [])) if isinstance(data_extracted.get("role"), list) else data_extracted.get("role", ""),
-        "location":             data_extracted.get("location", ""),
+        # ── Editable fields — always use latest from Candidate model ──────
+        "name":     candidate.name or data_extracted.get("name", ""),
+        "role":     " | ".join(candidate.job_titles) if candidate.job_titles else (
+                        " | ".join(data_extracted.get("role", []))
+                        if isinstance(data_extracted.get("role"), list)
+                        else data_extracted.get("role", "")
+                    ),
+        "location": candidate.location or data_extracted.get("location", ""),
+
+        # ── AI-only fields — read from raw AI output ──────────────────────
         "professional_profile": data_extracted.get("professional_profile", ""),
         "employment_history":   data_extracted.get("employment_history", []),
         "qualifications":       data_extracted.get("qualifications", []),
@@ -113,29 +121,35 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str):
         "updated_at",
     ])
 
-    if candidate.batch:
-        from django.db.models import F
-        candidate.batch.processed_count = F("processed_count") + 1
-        candidate.batch.save(update_fields=["processed_count", "updated_at"])
+# ── Only increment batch count and send email on FIRST generation ─────
+    if not is_regeneration:
+        if candidate.batch:
+            from django.db.models import F
+            candidate.batch.processed_count = F("processed_count") + 1
+            candidate.batch.save(update_fields=["processed_count", "updated_at"])
 
-    logger.info(f"[generate_pdf] ✅ PDF generated and saved for candidate {candidate_id}.")
-
-    # ── Send availability email if candidate has an email address ─────────
-    if candidate.email:
-        from candidate.tasks.send_email import send_availability_email_task
-        send_availability_email_task.apply_async(
-            args=[candidate_id],
-            queue="default",
-            countdown=5,   # small delay to avoid hammering SendGrid
-        )
-        logger.info(
-            f"[generate_pdf] Availability email queued for candidate {candidate_id}."
-        )
+        if candidate.email:
+            from candidate.tasks.send_email import send_availability_email_task
+            send_availability_email_task.apply_async(
+                args=[candidate_id],
+                queue="default",
+                countdown=5,
+            )
+            logger.info(
+                f"[generate_pdf] Availability email queued for candidate {candidate_id}."
+            )
+        else:
+            logger.info(
+                f"[generate_pdf] No email found for candidate {candidate_id}. "
+                f"Skipping availability email."
+            )
     else:
         logger.info(
-            f"[generate_pdf] No email found for candidate {candidate_id}. "
-            f"Skipping availability email."
+            f"[generate_pdf] ♻️ PDF regenerated for candidate {candidate_id} "
+            f"(batch count and email skipped — regeneration only)."
         )
+
+    logger.info(f"[generate_pdf] ✅ PDF generated and saved for candidate {candidate_id}.")
 
 
 def _resolve_logo_url() -> str:

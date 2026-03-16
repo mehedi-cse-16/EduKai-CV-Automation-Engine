@@ -6,7 +6,8 @@ from django.http import QueryDict
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
 from rest_framework import status
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.generics import get_object_or_404
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -335,21 +336,13 @@ class CandidateUpdateView(APIView):
     """
     PATCH /api/candidates/<candidate_id>/update/
 
-    Partially update editable candidate fields.
-    All fields are optional — only send what you want to change.
+    Editable: name, email, whatsapp_number, location, years_of_experience,
+              skills, job_titles, profile_photo, source, availability_status,
+              quality_status, email_subject, email_body, notes
 
-    ✅ Editable:  name, email, whatsapp_number, location,
-                  years_of_experience, skills, source,
-                  availability_status, quality_status,
-                  email_subject, email_body, notes
-
-    ❌ NOT editable via this endpoint:
-                  id, batch, created_at, updated_at,
-                  ai_processing_status, ai_task_id,
-                  ai_enhanced_cv_content, ai_enhanced_cv_file,
-                  ai_failure_reason, ai_retry_count,
-                  original_cv_file  (use separate CV upload flow)
+    Auto-regenerates PDF if job_titles, name, or location changed.
     """
+    parser_classes = [MultiPartParser, FormParser, JSONParser]   # ✅ needed for profile_photo upload
     permission_classes = [IsAuthenticated, IsSuperUser]
 
     @extend_schema(
@@ -364,27 +357,55 @@ class CandidateUpdateView(APIView):
     )
     def patch(self, request, candidate_id):
         try:
-            candidate = Candidate.objects.get(id=candidate_id)
+            from django.shortcuts import get_object_or_404
+            candidate = get_object_or_404(Candidate, id=candidate_id)
+
         except Candidate.DoesNotExist:
             return Response(
                 {"detail": "Candidate not found."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # ── Snapshot fields that trigger PDF regeneration ─────────────────
+        old_job_titles = list(candidate.job_titles or [])
+        old_name       = candidate.name
+        old_location   = candidate.location
+
         serializer = CandidateUpdateSerializer(
             candidate,
             data=request.data,
-            partial=True,           # ✅ all fields optional
+            partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()           # calls update() internally
+        serializer.save()
 
+        # ── Refresh from DB to get latest saved values ────────────────────
+        candidate.refresh_from_db()
+
+        changed_fields = list(serializer.validated_data.keys())
         logger.info(
             f"[update] Candidate {candidate_id} updated. "
-            f"Fields changed: {list(serializer.validated_data.keys())}"
+            f"Fields changed: {changed_fields}"
         )
 
-        # ✅ Return full detail response so frontend gets updated pre-signed URLs too
+        # ── Regenerate PDF if any CV-visible field changed ────────────────
+        PDF_TRIGGER_FIELDS = {"job_titles", "name", "location"}
+        should_regenerate = bool(PDF_TRIGGER_FIELDS & set(changed_fields))
+
+        if should_regenerate and candidate.ai_enhanced_cv_content:
+            from candidate.tasks.generate_pdf import generate_enhanced_cv_pdf_task
+            generate_enhanced_cv_pdf_task.apply_async(
+                args=[str(candidate_id)],
+                kwargs={"is_regeneration": True},
+                queue="pdf",
+            )
+            logger.info(
+                f"[update] PDF regeneration triggered for candidate {candidate_id}. "
+                f"Reason: {PDF_TRIGGER_FIELDS & set(changed_fields)} changed."
+            )
+
+        request._cv_regenerating = should_regenerate and bool(candidate.ai_enhanced_cv_content)
+
         return Response(
             CandidateDetailSerializer(candidate, context={"request": request}).data,
             status=status.HTTP_200_OK,

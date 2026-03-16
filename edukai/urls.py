@@ -33,6 +33,9 @@ urlpatterns = [
     # Candidate-related endpoints
     path("api/candidates/", include("candidate.urls", namespace="candidate")),
 
+    # Organization-related endpoints
+    path("api/organizations/", include("organization.urls", namespace="organization")),
+
     # API Documentation
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
