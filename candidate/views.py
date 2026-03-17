@@ -82,6 +82,16 @@ class BulkCVUploadView(APIView):
 
         logger.info(f"[upload] Batch {batch.id}: {candidates_created} tasks queued.")
 
+        # ── Log activity ──────────────────────────────────────────────────
+        from account.utils.activity import log_activity
+        log_activity(
+            event_type = "batch_uploaded",
+            severity   = "info",
+            title      = f"Batch uploaded: {candidates_created} CVs",
+            message    = f"Batch {batch.id} created with {candidates_created} CVs queued for AI processing.",
+            batch_id   = batch.id,
+        )
+
         return Response(
             {
                 "message": f"{candidates_created} CV(s) accepted and queued for processing.",

@@ -240,5 +240,16 @@ def _update_batch_failed(candidate_id: str):
         if candidate.batch:
             candidate.batch.failed_count = models.F("failed_count") + 1
             candidate.batch.save(update_fields=["failed_count"])
+
+        # ── Log activity ──────────────────────────────────────────────────
+        from account.utils.activity import log_activity
+        log_activity(
+            event_type   = "cv_failed",
+            severity     = "error",
+            title        = f"CV failed: {candidate.name or candidate_id}",
+            message      = candidate.ai_failure_reason or "AI processing failed.",
+            candidate_id = candidate.id,
+            batch_id     = candidate.batch_id,
+        )
     except Exception:
         pass

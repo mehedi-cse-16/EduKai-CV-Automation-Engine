@@ -196,3 +196,67 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __repr__(self) -> str:
         return f"<User id={self.id} email={self.email} role={self.role}>"
+
+
+# ---------------------------------------------------------------------------
+# Activity Log — tracks system events and notifications
+# ---------------------------------------------------------------------------
+class ActivityLog(models.Model):
+
+    class EventType(models.TextChoices):
+        # Candidate events
+        BATCH_UPLOADED          = "batch_uploaded",           "Batch Uploaded"
+        BATCH_COMPLETED         = "batch_completed",          "Batch Completed"
+        BATCH_FAILED            = "batch_failed",             "Batch Failed"
+        CV_PROCESSED            = "cv_processed",             "CV Processed"
+        CV_FAILED               = "cv_failed",                "CV Failed"
+        EMAILS_SENT             = "emails_sent",              "Emails Sent"
+        CV_REWRITE_COMPLETED    = "cv_rewrite_completed",     "CV Rewrite Completed"
+        CV_REWRITE_FAILED       = "cv_rewrite_failed",        "CV Rewrite Failed"
+        # Organization events
+        ORG_IMPORT_COMPLETED    = "org_import_completed",     "Org Import Completed"
+        CONTACT_IMPORT_COMPLETED = "contact_import_completed", "Contact Import Completed"
+
+    class Severity(models.TextChoices):
+        INFO    = "info",    "Info"      # normal activity
+        SUCCESS = "success", "Success"   # something completed well
+        WARNING = "warning", "Warning"   # needs attention
+        ERROR   = "error",   "Error"     # something failed ← show as notification
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    event_type = models.CharField(
+        max_length=50,
+        choices=EventType.choices,
+        db_index=True,
+    )
+    severity = models.CharField(
+        max_length=10,
+        choices=Severity.choices,
+        default=Severity.INFO,
+        db_index=True,
+    )
+    title   = models.CharField(max_length=255)
+    message = models.TextField(blank=True, default="")
+
+    # Optional references — so frontend can link to the relevant item
+    candidate_id    = models.UUIDField(null=True, blank=True, db_index=True)
+    batch_id        = models.UUIDField(null=True, blank=True, db_index=True)
+    organization_id = models.UUIDField(null=True, blank=True, db_index=True)
+
+    # Notification tracking
+    is_read = models.BooleanField(default=False, db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = "Activity Log"
+        verbose_name_plural = "Activity Logs"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["event_type", "created_at"]),
+            models.Index(fields=["severity", "is_read"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.severity}] {self.title} — {self.created_at:%Y-%m-%d %H:%M}"

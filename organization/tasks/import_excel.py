@@ -211,6 +211,18 @@ def import_organizations_task(self, file_path: str):
         f"skipped={summary['organizations_skipped']}, "
         f"errors={len(summary['errors'])}"
     )
+    # ── Log activity ──────────────────────────────────────────────────────
+    from account.utils.activity import log_activity
+    log_activity(
+        event_type = "org_import_completed",
+        severity   = "success" if summary["organizations_created"] > 0 else "warning",
+        title      = f"Organizations imported: {summary['organizations_created']}",
+        message    = (
+            f"Created: {summary['organizations_created']}, "
+            f"Skipped: {summary['organizations_skipped']}, "
+            f"Errors: {len(summary['errors'])}."
+        ),
+    )
     return summary
 
 
@@ -365,5 +377,16 @@ def import_contacts_task(self, file_path: str):
         f"created={summary['contacts_created']}, "
         f"skipped={summary['contacts_skipped']}, "
         f"errors={len(summary['errors'])}"
+    )
+    from account.utils.activity import log_activity
+    log_activity(
+        event_type = "contact_import_completed",
+        severity   = "success" if summary["contacts_created"] > 0 else "warning",
+        title      = f"Contacts imported: {summary['contacts_created']}",
+        message    = (
+            f"Created: {summary['contacts_created']}, "
+            f"Skipped: {summary['contacts_skipped']}, "
+            f"Errors: {len(summary['errors'])}."
+        ),
     )
     return summary

@@ -645,3 +645,102 @@ class DashboardView(APIView):
             },
             "recent_batches": recent_batches,
         })
+
+
+# ---------------------------------------------------------------------------
+# Activity Log
+# ---------------------------------------------------------------------------
+class ActivityLogView(APIView):
+    """
+    GET /api/auth/activity/
+    Returns recent activity log entries.
+
+    Query params:
+        ?severity=error          filter by severity (info/success/warning/error)
+        ?unread=true             only unread notifications
+        ?limit=50                number of entries (default 50, max 100)
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Activity log entries")},
+        summary="Get activity log and notifications",
+        tags=["Dashboard"],
+    )
+    def get(self, request):
+        from account.models import ActivityLog
+
+        qs = ActivityLog.objects.all()
+
+        severity = request.query_params.get("severity")
+        unread   = request.query_params.get("unread")
+
+        if severity:
+            qs = qs.filter(severity=severity)
+        if unread == "true":
+            qs = qs.filter(is_read=False)
+
+        try:
+            limit = min(int(request.query_params.get("limit", 50)), 100)
+        except ValueError:
+            limit = 50
+
+        qs = qs[:limit]
+
+        data = [
+            {
+                "id":              str(log.id),
+                "event_type":      log.event_type,
+                "severity":        log.severity,
+                "title":           log.title,
+                "message":         log.message,
+                "is_read":         log.is_read,
+                "candidate_id":    str(log.candidate_id) if log.candidate_id else None,
+                "batch_id":        str(log.batch_id) if log.batch_id else None,
+                "organization_id": str(log.organization_id) if log.organization_id else None,
+                "created_at":      log.created_at,
+            }
+            for log in qs
+        ]
+
+        unread_count = ActivityLog.objects.filter(is_read=False).count()
+
+        return Response({
+            "unread_count": unread_count,
+            "total":        len(data),
+            "activities":   data,
+        })
+
+
+class MarkNotificationsReadView(APIView):
+    """
+    POST /api/auth/activity/mark-read/
+    Marks all or specific notifications as read.
+
+    Body (optional):
+    { "ids": ["uuid1", "uuid2"] }   → mark specific ones
+    {}                               → mark all as read
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Marked as read")},
+        summary="Mark notifications as read",
+        tags=["Dashboard"],
+    )
+    def post(self, request):
+        from account.models import ActivityLog
+
+        ids = request.data.get("ids", [])
+
+        if ids:
+            updated = ActivityLog.objects.filter(
+                id__in=ids, is_read=False
+            ).update(is_read=True)
+        else:
+            updated = ActivityLog.objects.filter(is_read=False).update(is_read=True)
+
+        return Response({
+            "message": f"{updated} notification(s) marked as read.",
+            "updated": updated,
+        })

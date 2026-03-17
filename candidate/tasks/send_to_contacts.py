@@ -117,6 +117,15 @@ def send_to_contacts_task(self, candidate_id: str, contact_ids: list):
             "contacts_emailed_count",
             "updated_at",
         ])
+        # ── Log activity ──────────────────────────────────────────────────
+        from account.utils.activity import log_activity
+        log_activity(
+            event_type   = "emails_sent",
+            severity     = "success",
+            title        = f"Emails sent for {candidate.name}",
+            message      = f"Sent to {summary['sent']} contacts. Failed: {summary['failed']}.",
+            candidate_id = candidate.id,
+        )
 
     logger.info(
         f"[send_contacts] ✅ Done for candidate '{candidate.name}' — "

@@ -127,6 +127,17 @@ def generate_enhanced_cv_pdf_task(self, candidate_id: str, is_regeneration: bool
             from django.db.models import F
             candidate.batch.processed_count = F("processed_count") + 1
             candidate.batch.save(update_fields=["processed_count", "updated_at"])
+        
+        # ── Log activity ──────────────────────────────────────────────────
+        from account.utils.activity import log_activity
+        log_activity(
+            event_type   = "cv_processed",
+            severity     = "success",
+            title        = f"CV processed: {candidate.name or 'Unknown'}",
+            message      = f"AI processing completed. Quality: {candidate.quality_status}.",
+            candidate_id = candidate.id,
+            batch_id     = candidate.batch_id,
+        )
 
         if candidate.email:
             from candidate.tasks.send_email import send_availability_email_task

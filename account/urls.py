@@ -12,6 +12,8 @@ from account.views import (
     VerifyOTPView,
     ResetPasswordView,
     DashboardView,
+    ActivityLogView,
+    MarkNotificationsReadView,
 )
 
 app_name = "account"
@@ -34,4 +36,6 @@ urlpatterns = [
     path("verify-otp/", VerifyOTPView.as_view(), name="verify_otp"),
     path("reset-password/", ResetPasswordView.as_view(), name="reset_password"),
     path("dashboard/", DashboardView.as_view(), name="dashboard"),
+    path("activity/", ActivityLogView.as_view(), name="activity_log"),
+    path("activity/mark-read/", MarkNotificationsReadView.as_view(), name="mark_notifications_read"),
 ]
