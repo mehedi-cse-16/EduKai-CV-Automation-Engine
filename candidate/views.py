@@ -848,3 +848,144 @@ class CandidateNearbyContactsView(APIView):
             "total_contacts":     len(results),
             "contacts":           results,
         })
+
+
+class SendToContactsView(APIView):
+    """
+    POST /api/candidates/<candidate_id>/send-to-contacts/
+
+    Sends candidate's email_subject + email_body to selected contacts.
+    Runs as a background Celery task.
+
+    Request body:
+    {
+        "contact_ids": ["uuid1", "uuid2", ...]   max 1000
+    }
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "contact_ids": {
+                        "type":     "array",
+                        "items":    {"type": "string"},
+                        "maxItems": 1000,
+                    }
+                },
+                "required": ["contact_ids"],
+            }
+        },
+        responses={
+            202: OpenApiResponse(description="Emails queued for sending"),
+            400: OpenApiResponse(description="Validation error"),
+            404: OpenApiResponse(description="Candidate not found"),
+        },
+        summary="Send candidate info to selected organization contacts",
+        tags=["Candidates"],
+    )
+    def post(self, request, candidate_id):
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ── Validate candidate has email content ──────────────────────────
+        if not candidate.email_subject or not candidate.email_body:
+            return Response(
+                {
+                    "detail": "Candidate has no email subject or body. "
+                              "Process the CV through AI first."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Validate contact_ids ──────────────────────────────────────────
+        contact_ids = request.data.get("contact_ids", [])
+
+        if not contact_ids:
+            return Response(
+                {"detail": "contact_ids is required and cannot be empty."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(contact_ids, list):
+            return Response(
+                {"detail": "contact_ids must be a list of UUIDs."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(contact_ids) > 1000:
+            return Response(
+                {"detail": "Maximum 1000 contacts per request."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Queue task ────────────────────────────────────────────────────
+        from candidate.tasks.send_to_contacts import send_to_contacts_task
+        task = send_to_contacts_task.apply_async(
+            args=[str(candidate_id), contact_ids],
+            queue="default",
+        )
+
+        logger.info(
+            f"[send_contacts] Queued for candidate '{candidate.name}' "
+            f"→ {len(contact_ids)} contacts. Task: {task.id}"
+        )
+
+        return Response(
+            {
+                "message":       f"Sending emails to {len(contact_ids)} contacts.",
+                "task_id":       task.id,
+                "candidate":     candidate.name,
+                "contact_count": len(contact_ids),
+                "poll_url":      f"/api/candidates/send-status/{task.id}/",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class SendToContactsStatusView(APIView):
+    """
+    GET /api/candidates/send-status/<task_id>/
+    Poll for email sending task result.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Task status and summary")},
+        summary="Get email send task status",
+        tags=["Candidates"],
+    )
+    def get(self, request, task_id):
+        from celery.result import AsyncResult
+        result = AsyncResult(task_id)
+
+        if result.state == "PENDING":
+            return Response({
+                "status":  "pending",
+                "message": "Emails are still being sent.",
+            })
+
+        if result.state == "FAILURE":
+            return Response(
+                {
+                    "status": "failed",
+                    "error":  str(result.result),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if result.state == "SUCCESS":
+            return Response({
+                "status":  "completed",
+                "summary": result.result,
+            })
+
+        return Response({
+            "status":  result.state.lower(),
+            "message": "Processing.",
+        })

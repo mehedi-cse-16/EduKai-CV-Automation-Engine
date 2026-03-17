@@ -10,6 +10,7 @@ from candidate.tasks.sync_batch import sync_batch_counts
 from candidate.tasks.send_email import send_availability_email_task
 from candidate.tasks.rewrite_cv import poll_rewrite_result_task
 from candidate.tasks.geocode import geocode_candidate_task
+from candidate.tasks.send_to_contacts import send_to_contacts_task
 
 __all__ = [
     "process_cv_task",
@@ -20,4 +21,5 @@ __all__ = [
     "send_availability_email_task",
     "poll_rewrite_result_task",
     "geocode_candidate_task",
+    "send_to_contacts_task",
 ]

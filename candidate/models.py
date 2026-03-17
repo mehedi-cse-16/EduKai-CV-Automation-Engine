@@ -282,6 +282,19 @@ class Candidate(models.Model):
     email_subject = models.CharField(max_length=500, null=True, blank=True)
     email_body = models.TextField(null=True, blank=True)
 
+# -------------------------------------------------------------------------
+    # Contact Outreach Tracking
+    # -------------------------------------------------------------------------
+    last_contacted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When candidate info was last sent to organization contacts.",
+    )
+    contacts_emailed_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of contacts emailed for this candidate so far.",
+    )
+
     # -------------------------------------------------------------------------
     # Internal Notes
     # -------------------------------------------------------------------------
