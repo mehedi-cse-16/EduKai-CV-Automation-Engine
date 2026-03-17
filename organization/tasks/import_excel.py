@@ -30,22 +30,26 @@ CONTACT_COLUMN_MAP = {
 }
 
 PHASE_MAP = {
-    "primary":          "primary",
-    "secondary":        "secondary",
-    "nursery":          "nursery",
-    "all through":      "all_through",
-    "16 plus":          "16_plus",
-    "16plus":           "16_plus",
-    "not applicable":   "not_applicable",
-    "not_applicable":   "not_applicable",
+    "16 plus":                  "16_plus",
+    "16plus":                   "16_plus",
+    "all through":              "all_through",
+    "middle deemed primary":    "middle_deemed_primary",
+    "middle deemed secondary":  "middle_deemed_secondary",
+    "not applicable":           "not_applicable",
+    "not_applicable":           "not_applicable",
+    "nursery":                  "nursery",
+    "primary":                  "primary",
+    "secondary":                "secondary",
 }
 
 GENDER_MAP = {
-    "mixed":    "mixed",
-    "boys":     "boys",
-    "boy":      "boys",
-    "girls":    "girls",
-    "girl":     "girls",
+    "boys":           "boys",
+    "boy":            "boys",
+    "girls":          "girls",
+    "girl":           "girls",
+    "mixed":          "mixed",
+    "not applicable": "not_applicable",
+    "not_applicable": "not_applicable",
 }
 
 

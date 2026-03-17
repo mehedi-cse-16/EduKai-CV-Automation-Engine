@@ -9,6 +9,7 @@ from candidate.tasks.cleanup import cleanup_minio_files_task
 from candidate.tasks.sync_batch import sync_batch_counts
 from candidate.tasks.send_email import send_availability_email_task
 from candidate.tasks.rewrite_cv import poll_rewrite_result_task
+from candidate.tasks.geocode import geocode_candidate_task
 
 __all__ = [
     "process_cv_task",
@@ -18,4 +19,5 @@ __all__ = [
     "sync_batch_counts",
     "send_availability_email_task",
     "poll_rewrite_result_task",
+    "geocode_candidate_task",
 ]

@@ -575,3 +575,276 @@ class CandidateRewriteStatusView(APIView):
             "rewrite_status": "idle",
             "message":        "No rewrite has been started for this candidate.",
         })
+
+
+class CandidateNearbyOrganizationsView(APIView):
+    """
+    GET /api/candidates/<candidate_id>/nearby-organizations/
+
+    Returns organizations within a given radius of the candidate.
+    Geocodes the candidate on demand if lat/lng not yet stored.
+
+    Query params:
+        ?radius_km=10    (default: 10)
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Nearby organizations")},
+        summary="Get organizations near a candidate",
+        tags=["Candidates"],
+    )
+    def get(self, request, candidate_id):
+        from geopy.distance import geodesic
+        from organization.models import Organization
+        from organization.serializers import OrganizationDetailSerializer
+
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ── Geocode candidate on demand if missing ────────────────────────
+        if not candidate.latitude or not candidate.longitude:
+            if not candidate.location:
+                return Response(
+                    {"detail": "Candidate has no location. Cannot filter."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Geocode synchronously here — only happens once per candidate
+            try:
+                from geopy.geocoders import Nominatim
+                geolocator = Nominatim(user_agent="edukai_candidate_geocoder")
+                geo_result = geolocator.geocode(candidate.location, timeout=10)
+
+                if not geo_result:
+                    return Response(
+                        {
+                            "detail": f"Could not geocode location "
+                                      f"'{candidate.location}'. "
+                                      f"Try updating the location to be more specific."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Save for future use — next time this is instant
+                candidate.latitude  = round(geo_result.latitude, 6)
+                candidate.longitude = round(geo_result.longitude, 6)
+                candidate.save(update_fields=["latitude", "longitude", "updated_at"])
+
+                logger.info(
+                    f"[nearby] Candidate '{candidate.name}' geocoded on demand: "
+                    f"lat={candidate.latitude}, lng={candidate.longitude}"
+                )
+
+            except Exception as exc:
+                logger.error(f"[nearby] Geocoding failed for {candidate_id}: {exc}")
+                return Response(
+                    {"detail": f"Geocoding failed: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # ── Get radius from query params ──────────────────────────────────
+        try:
+            radius_km = float(request.query_params.get("radius_km", 10))
+        except ValueError:
+            return Response(
+                {"detail": "radius_km must be a number."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Filter organizations by distance ──────────────────────────────
+        center = (float(candidate.latitude), float(candidate.longitude))
+
+        orgs_with_coords = Organization.objects.prefetch_related(
+            "contacts"
+        ).exclude(
+            latitude=None
+        ).exclude(
+            longitude=None
+        )
+
+        nearby = []
+        for org in orgs_with_coords:
+            org_point = (float(org.latitude), float(org.longitude))
+            distance  = geodesic(center, org_point).km
+            if distance <= radius_km:
+                nearby.append({
+                    "distance_km": round(distance, 2),
+                    "organization": OrganizationDetailSerializer(org).data,
+                })
+
+        # Sort by distance — closest first
+        nearby.sort(key=lambda x: x["distance_km"])
+
+        return Response({
+            "candidate":        candidate.name,
+            "candidate_location": candidate.location,
+            "candidate_lat":    float(candidate.latitude),
+            "candidate_lng":    float(candidate.longitude),
+            "radius_km":        radius_km,
+            "total_found":      len(nearby),
+            "organizations":    nearby,
+        })
+
+
+class CandidateNearbyContactsView(APIView):
+    """
+    GET /api/candidates/<candidate_id>/nearby-contacts/
+
+    Returns contacts under organizations near the candidate.
+    Supports filtering by radius, phase, location, contact job title.
+
+    Query params:
+        ?radius_km=10           (default: 10)
+        ?phase=primary          (optional)
+        ?town=London            (optional)
+        ?postcode=EC3A          (optional)
+        ?job_title=Math         (optional — filters contact job titles)
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Nearby contacts")},
+        summary="Get contacts from organizations near a candidate",
+        tags=["Candidates"],
+    )
+    def get(self, request, candidate_id):
+        from geopy.distance import geodesic
+        from geopy.geocoders import Nominatim
+        from organization.models import Organization, OrganizationContact
+
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ── Geocode candidate on demand ───────────────────────────────────
+        if not candidate.latitude or not candidate.longitude:
+            if not candidate.location:
+                return Response(
+                    {"detail": "Candidate has no location set."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                geolocator = Nominatim(user_agent="edukai_candidate_geocoder")
+                geo_result = geolocator.geocode(candidate.location, timeout=10)
+                if not geo_result:
+                    return Response(
+                        {
+                            "detail": f"Could not geocode '{candidate.location}'. "
+                                      f"Try a more specific location."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                candidate.latitude  = round(geo_result.latitude, 6)
+                candidate.longitude = round(geo_result.longitude, 6)
+                candidate.save(update_fields=["latitude", "longitude", "updated_at"])
+                logger.info(
+                    f"[nearby_contacts] Candidate '{candidate.name}' geocoded: "
+                    f"lat={candidate.latitude}, lng={candidate.longitude}"
+                )
+            except Exception as exc:
+                return Response(
+                    {"detail": f"Geocoding failed: {exc}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        # ── Query params ──────────────────────────────────────────────────
+        try:
+            radius_km = float(request.query_params.get("radius_km", 10))
+        except ValueError:
+            return Response(
+                {"detail": "radius_km must be a number."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        phase     = request.query_params.get("phase")
+        town      = request.query_params.get("town")
+        postcode  = request.query_params.get("postcode")
+        job_title = request.query_params.get("job_title")
+
+        # ── Build org queryset with filters ───────────────────────────────
+        orgs = Organization.objects.prefetch_related(
+            "contacts"
+        ).exclude(
+            latitude=None
+        ).exclude(
+            longitude=None
+        )
+
+        if phase:
+            orgs = orgs.filter(phase__iexact=phase)
+        if town:
+            orgs = orgs.filter(town__icontains=town)
+        if postcode:
+            orgs = orgs.filter(postcode__icontains=postcode)
+
+        # ── Filter by radius ──────────────────────────────────────────────
+        center = (float(candidate.latitude), float(candidate.longitude))
+
+        nearby_org_ids = []
+        org_distances  = {}
+
+        for org in orgs:
+            org_point = (float(org.latitude), float(org.longitude))
+            distance  = geodesic(center, org_point).km
+            if distance <= radius_km:
+                nearby_org_ids.append(org.id)
+                org_distances[org.id] = round(distance, 2)
+
+        # ── Get contacts under nearby orgs ────────────────────────────────
+        contacts_qs = OrganizationContact.objects.select_related(
+            "organization"
+        ).filter(
+            organization__id__in=nearby_org_ids
+        )
+
+        # Filter by contact job title if provided
+        if job_title:
+            contacts_qs = contacts_qs.filter(
+                job_title__icontains=job_title
+            )
+
+        # ── Build flat response the frontend can use directly ─────────────
+        results = []
+        for contact in contacts_qs.order_by(
+            "organization__name", "contact_person"
+        ):
+            org = contact.organization
+            results.append({
+                # Contact info
+                "contact_id":           str(contact.id),
+                "contact_person":       contact.contact_person,
+                "contact_email":        contact.work_email,
+                "contact_job_title":    contact.job_title,
+
+                # Organization info
+                "organization_id":      str(org.id),
+                "organization_name":    org.name,
+                "organization_phase":   org.get_phase_display(),
+                "organization_gender":  org.get_gender_display(),
+                "organization_town":    org.town,
+                "organization_county":  org.county,
+                "organization_postcode": org.postcode,
+                "organization_local_authority": org.local_authority,
+                "organization_telephone": org.telephone,
+
+                # Distance
+                "distance_km": org_distances.get(org.id),
+            })
+
+        return Response({
+            "candidate":          candidate.name,
+            "candidate_location": candidate.location,
+            "radius_km":          radius_km,
+            "total_contacts":     len(results),
+            "contacts":           results,
+        })

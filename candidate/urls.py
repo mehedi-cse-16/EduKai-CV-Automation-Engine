@@ -7,9 +7,12 @@ from candidate.views import (
     CandidateDetailView,
     CandidateDeleteView,
     CandidateListView,
+    CandidateNearbyContactsView,
     CandidateUpdateView,
     CandidateRewriteView,
     CandidateRewriteStatusView,
+    CandidateNearbyOrganizationsView,
+    CandidateNearbyContactsView,
 )
 
 app_name = "candidate"
@@ -20,6 +23,8 @@ urlpatterns = [
     path("<uuid:candidate_id>/",                CandidateDetailView.as_view(), name="candidate_detail"),
     path("<uuid:candidate_id>/update/",         CandidateUpdateView.as_view(), name="candidate_update"),
     path("<uuid:candidate_id>/delete/",         CandidateDeleteView.as_view(), name="candidate_delete"),
+    path("<uuid:candidate_id>/nearby-organizations/", CandidateNearbyOrganizationsView.as_view(), name="candidate_nearby_organizations"),
+    path("<uuid:candidate_id>/nearby-contacts/", CandidateNearbyContactsView.as_view(), name="candidate_nearby_contacts"),
 
     path("<uuid:candidate_id>/rewrite/",         CandidateRewriteView.as_view(),       name="candidate_rewrite"),
     path("<uuid:candidate_id>/rewrite/status/",  CandidateRewriteStatusView.as_view(), name="candidate_rewrite_status"),

@@ -132,6 +132,21 @@ class Candidate(models.Model):
     )
     whatsapp_number = models.CharField(max_length=30, null=True, blank=True)
     location = models.CharField(max_length=255, null=True, blank=True)
+    # ── Geo Coordinates (populated on demand when filtering) ──────────────
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Populated on demand when geo filtering is used.",
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Populated on demand when geo filtering is used.",
+    )
 
     # -------------------------------------------------------------------------
     # Professional Information (populated from AI personal_info)

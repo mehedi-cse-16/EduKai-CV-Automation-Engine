@@ -14,18 +14,21 @@ logger = logging.getLogger(__name__)
 # Choices
 # ---------------------------------------------------------------------------
 class PhaseChoices(models.TextChoices):
-    SIXTEEN_PLUS    = "16_plus",        "16 Plus"
-    PRIMARY         = "primary",        "Primary"
-    SECONDARY       = "secondary",      "Secondary"
-    ALL_THROUGH     = "all_through",    "All Through"
-    NURSERY         = "nursery",        "Nursery"
-    NOT_APPLICABLE  = "not_applicable", "Not Applicable"
+    SIXTEEN_PLUS             = "16_plus",                  "16 Plus"
+    ALL_THROUGH              = "all_through",               "All Through"
+    MIDDLE_DEEMED_PRIMARY    = "middle_deemed_primary",     "Middle Deemed Primary"
+    MIDDLE_DEEMED_SECONDARY  = "middle_deemed_secondary",   "Middle Deemed Secondary"
+    NOT_APPLICABLE           = "not_applicable",            "Not Applicable"
+    NURSERY                  = "nursery",                   "Nursery"
+    PRIMARY                  = "primary",                   "Primary"
+    SECONDARY                = "secondary",                 "Secondary"
 
 
 class GenderChoices(models.TextChoices):
-    BOTH    = "both",  "Both"
-    BOYS    = "boys",   "Boys"
-    GIRLS   = "girls",  "Girls"
+    BOYS           = "boys",           "Boys"
+    GIRLS          = "girls",          "Girls"
+    MIXED          = "mixed",          "Mixed"
+    NOT_APPLICABLE = "not_applicable", "Not Applicable"
 
 
 # ---------------------------------------------------------------------------
@@ -60,15 +63,15 @@ class Organization(models.Model):
         help_text="Local Authority the organization belongs to.",
     )
     phase = models.CharField(
-        max_length=20,
+        max_length=50,
         choices=PhaseChoices.choices,
         default=PhaseChoices.NOT_APPLICABLE,
         db_index=True,
     )
     gender = models.CharField(
-        max_length=10,
+        max_length=30,
         choices=GenderChoices.choices,
-        default=GenderChoices.BOTH,
+        default=GenderChoices.MIXED,
     )
     telephone = models.CharField(
         max_length=30,
