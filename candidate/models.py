@@ -217,6 +217,24 @@ class Candidate(models.Model):
         db_index=True,
         help_text="Task ID returned by the AI service. Used for polling.",
     )
+    rewrite_task_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Task ID for AI rewrite. Separate from the original ai_task_id.",
+    )
+    rewrite_status = models.CharField(
+        max_length=20,
+        choices=[
+            ("idle",       "Idle"),
+            ("processing", "Processing"),
+            ("completed",  "Completed"),
+            ("failed",     "Failed"),
+        ],
+        default="idle",
+        help_text="Tracks the status of the AI rewrite request.",
+    )
     ai_enhanced_cv_content = models.JSONField(
         null=True,
         blank=True,
@@ -232,6 +250,11 @@ class Candidate(models.Model):
         null=True,
         blank=True,
         help_text="Stores error message if AI processing failed.",
+    )
+    rewrite_failure_reason = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Stores error message if AI rewrite failed.",
     )
     ai_retry_count = models.PositiveSmallIntegerField(
         default=0,
@@ -265,6 +288,7 @@ class Candidate(models.Model):
             models.Index(fields=["quality_status"]),
             models.Index(fields=["ai_processing_status"]),
             models.Index(fields=["ai_task_id"]),
+            models.Index(fields=["rewrite_task_id"]),
         ]
 
     def __str__(self):

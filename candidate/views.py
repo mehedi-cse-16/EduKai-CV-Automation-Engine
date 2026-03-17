@@ -1,5 +1,6 @@
 import logging
 from typing import cast
+from django.conf import settings
 
 from django.http import QueryDict
 
@@ -410,3 +411,167 @@ class CandidateUpdateView(APIView):
             CandidateDetailSerializer(candidate, context={"request": request}).data,
             status=status.HTTP_200_OK,
         )
+
+
+class CandidateRewriteView(APIView):
+    """
+    POST /api/candidates/<candidate_id>/rewrite/
+
+    Sends candidate's current data_extracted to AI rewrite endpoint.
+    Returns immediately with rewrite_task_id.
+    Frontend should poll /rewrite/status/ for result.
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={
+            202: OpenApiResponse(description="Rewrite started"),
+            400: OpenApiResponse(description="No AI content found"),
+            404: OpenApiResponse(description="Candidate not found"),
+        },
+        summary="Rewrite candidate CV with AI",
+        tags=["Candidates"],
+    )
+    def post(self, request, candidate_id):
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ── Guard: need existing AI content to rewrite ────────────────────
+        if not candidate.ai_enhanced_cv_content:
+            return Response(
+                {"detail": "No AI content found. Cannot rewrite."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Guard: don't start if already processing ──────────────────────
+        if candidate.rewrite_status == "processing":
+            return Response(
+                {
+                    "detail": "Rewrite already in progress.",
+                    "rewrite_task_id": candidate.rewrite_task_id,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── Get data_extracted to send to AI ─────────────────────────────
+        data_extracted = candidate.ai_enhanced_cv_content.get("data_extracted", {})
+        if not data_extracted:
+            return Response(
+                {"detail": "data_extracted is empty. Cannot rewrite."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ── POST to AI rewrite endpoint ───────────────────────────────────
+        try:
+            import requests as req
+            response = req.post(
+                f"{settings.AI_BASE_URL}/api/v1/rewrite/",
+                json={"cv_data": data_extracted},
+                timeout=30,
+            )
+            response.raise_for_status()
+            ai_response = response.json()
+        except Exception as exc:
+            logger.error(f"[rewrite] Failed to call AI rewrite for {candidate_id}: {exc}")
+            return Response(
+                {"detail": f"Failed to reach AI service: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        rewrite_task_id = ai_response.get("task_id")
+        if not rewrite_task_id:
+            return Response(
+                {"detail": "AI did not return a task_id."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # ── Save task_id and mark processing ──────────────────────────────
+        candidate.rewrite_task_id        = rewrite_task_id
+        candidate.rewrite_status         = "processing"
+        candidate.rewrite_failure_reason = None
+        candidate.save(update_fields=[
+            "rewrite_task_id",
+            "rewrite_status",
+            "rewrite_failure_reason",
+            "updated_at",
+        ])
+
+        # ── Queue polling task ────────────────────────────────────────────
+        from candidate.tasks.rewrite_cv import poll_rewrite_result_task
+        poll_rewrite_result_task.apply_async(
+            args=[str(candidate_id), rewrite_task_id],
+            countdown=settings.AI_POLL_INTERVAL_SECONDS,
+            queue="polling",
+        )
+
+        logger.info(
+            f"[rewrite] Candidate {candidate_id} rewrite started. "
+            f"AI task_id={rewrite_task_id}"
+        )
+
+        return Response(
+            {
+                "message":         "CV rewrite started.",
+                "rewrite_task_id": rewrite_task_id,
+                "rewrite_status":  "processing",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class CandidateRewriteStatusView(APIView):
+    """
+    GET /api/candidates/<candidate_id>/rewrite/status/
+
+    Returns current rewrite status and updated candidate data when done.
+    Frontend polls this until rewrite_status is 'completed' or 'failed'.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Rewrite status")},
+        summary="Get CV rewrite status",
+        tags=["Candidates"],
+    )
+    def get(self, request, candidate_id):
+        try:
+            candidate = Candidate.objects.get(id=candidate_id)
+        except Candidate.DoesNotExist:
+            return Response(
+                {"detail": "Candidate not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if candidate.rewrite_status == "processing":
+            return Response({
+                "rewrite_status":  "processing",
+                "message":         "CV rewrite is still in progress.",
+                "rewrite_task_id": candidate.rewrite_task_id,
+            })
+
+        if candidate.rewrite_status == "failed":
+            return Response({
+                "rewrite_status":         "failed",
+                "rewrite_failure_reason": candidate.rewrite_failure_reason,
+            })
+
+        if candidate.rewrite_status == "completed":
+            # ✅ Return full updated candidate data including new enhanced_cv_url
+            return Response({
+                "rewrite_status": "completed",
+                "candidate":      CandidateDetailSerializer(
+                    candidate,
+                    context={"request": request}
+                ).data,
+            })
+
+        # idle — no rewrite started yet
+        return Response({
+            "rewrite_status": "idle",
+            "message":        "No rewrite has been started for this candidate.",
+        })
