@@ -10,6 +10,8 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from account.permissions import IsSuperUser, IsNormalUser, IsSuperUserOrReadOnly
+
 from account.serializers import (
     CookieTokenRefreshSerializer,
     LoginSerializer,
@@ -470,3 +472,176 @@ class ResetPasswordView(APIView):
             {"detail": "Password reset successfully. Please log in with your new password."},
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+class DashboardView(APIView):
+    """
+    GET /api/auth/dashboard/
+    Returns system-wide statistics for the superuser dashboard.
+    """
+    permission_classes = [IsAuthenticated, IsSuperUser]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description="Dashboard statistics")},
+        summary="Get dashboard statistics",
+        tags=["Dashboard"],
+    )
+    def get(self, request):
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.db.models import Count, Sum
+        from candidate.models import Candidate, CandidateUploadBatch
+        from organization.models import Organization, OrganizationContact
+
+        now     = timezone.now()
+        last_7  = now - timedelta(days=7)
+        last_30 = now - timedelta(days=30)
+
+        # ── Candidate stats ───────────────────────────────────────────────
+        total_candidates = Candidate.objects.count()
+
+        ai_status_counts = dict(
+            Candidate.objects.values("ai_processing_status")
+            .annotate(count=Count("id"))
+            .values_list("ai_processing_status", "count")
+        )
+        quality_counts = dict(
+            Candidate.objects.values("quality_status")
+            .annotate(count=Count("id"))
+            .values_list("quality_status", "count")
+        )
+        availability_counts = dict(
+            Candidate.objects.values("availability_status")
+            .annotate(count=Count("id"))
+            .values_list("availability_status", "count")
+        )
+        source_counts = dict(
+            Candidate.objects.values("source")
+            .annotate(count=Count("id"))
+            .values_list("source", "count")
+        )
+
+        new_last_7  = Candidate.objects.filter(created_at__gte=last_7).count()
+        new_last_30 = Candidate.objects.filter(created_at__gte=last_30).count()
+
+        emailed_candidates = Candidate.objects.filter(
+            contacts_emailed_count__gt=0
+        ).count()
+
+        total_emails_sent = Candidate.objects.aggregate(
+            total=Sum("contacts_emailed_count")
+        )["total"] or 0
+
+        # ── Batch stats ───────────────────────────────────────────────────
+        total_batches      = CandidateUploadBatch.objects.count()
+        total_uploaded     = CandidateUploadBatch.objects.aggregate(
+            total=Sum("total_count")
+        )["total"] or 0
+        total_processed    = CandidateUploadBatch.objects.aggregate(
+            total=Sum("processed_count")
+        )["total"] or 0
+        total_batch_failed = CandidateUploadBatch.objects.aggregate(
+            total=Sum("failed_count")
+        )["total"] or 0
+
+        success_rate = (
+            round((total_processed / total_uploaded) * 100, 1)
+            if total_uploaded > 0 else 0
+        )
+
+        # ── Organization stats ────────────────────────────────────────────
+        total_organizations = Organization.objects.count()
+        total_contacts      = OrganizationContact.objects.count()
+
+        phase_counts = dict(
+            Organization.objects.values("phase")
+            .annotate(count=Count("id"))
+            .values_list("phase", "count")
+        )
+
+        orgs_geocoded = Organization.objects.exclude(
+            latitude=None
+        ).exclude(
+            longitude=None
+        ).count()
+
+        # ── Recent batches (last 5) ───────────────────────────────────────
+        recent_batches = []
+        for batch in CandidateUploadBatch.objects.order_by("-created_at")[:5]:
+            finished = batch.processed_count + batch.failed_count
+            progress = (
+                int((batch.processed_count / batch.total_count) * 100)
+                if batch.total_count > 0 else 0
+            )
+            if batch.total_count == 0:
+                batch_status = "empty"
+            elif finished < batch.total_count:
+                batch_status = "in_progress"
+            elif batch.failed_count == 0:
+                batch_status = "completed"
+            elif batch.processed_count == 0:
+                batch_status = "failed"
+            else:
+                batch_status = "partial"
+
+            recent_batches.append({
+                "id":              str(batch.id),
+                "total_count":     batch.total_count,
+                "processed_count": batch.processed_count,
+                "failed_count":    batch.failed_count,
+                "progress":        progress,
+                "status":          batch_status,
+                "created_at":      batch.created_at,
+            })
+
+        return Response({
+            "summary": {
+                "total_candidates":    total_candidates,
+                "total_uploaded":      total_uploaded,
+                "total_processed":     total_processed,
+                "total_failed":        total_batch_failed,
+                "success_rate":        success_rate,
+                "total_batches":       total_batches,
+                "emailed_candidates":  emailed_candidates,
+                "total_emails_sent":   total_emails_sent,
+                "total_organizations": total_organizations,
+                "total_contacts":      total_contacts,
+            },
+            "quality": {
+                "passed":        quality_counts.get("passed", 0),
+                "failed":        quality_counts.get("failed", 0),
+                "pending":       quality_counts.get("pending", 0),
+                "manual_review": quality_counts.get("manual", 0),
+            },
+            "ai_processing": {
+                "completed":   ai_status_counts.get("completed", 0),
+                "in_progress": ai_status_counts.get("in_progress", 0),
+                "failed":      ai_status_counts.get("failed", 0),
+                "not_started": ai_status_counts.get("not_started", 0),
+            },
+            "availability": {
+                "available":      availability_counts.get("available", 0),
+                "not_available":  availability_counts.get("not_available", 0),
+                "open_to_offers": availability_counts.get("open_to_offers", 0),
+            },
+            "sources": {
+                "local_upload": source_counts.get("local_upload", 0),
+                "crm":          source_counts.get("crm", 0),
+                "previous_db":  source_counts.get("previous_db", 0),
+            },
+            "recent_activity": {
+                "new_candidates_last_7_days":  new_last_7,
+                "new_candidates_last_30_days": new_last_30,
+            },
+            "organizations": {
+                "total":           total_organizations,
+                "total_contacts":  total_contacts,
+                "geocoded":        orgs_geocoded,
+                "not_geocoded":    total_organizations - orgs_geocoded,
+                "phase_breakdown": phase_counts,
+            },
+            "recent_batches": recent_batches,
+        })
