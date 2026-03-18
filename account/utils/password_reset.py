@@ -135,44 +135,74 @@ def can_request_otp(email: str) -> tuple[bool, str, int, int]:
 # Email Sending
 # ---------------------------------------------------------------------------
 def send_otp_email(email: str, otp: str) -> None:
-    """Send the OTP via email using Django's EmailMultiAlternatives."""
-    otp_ttl_minutes = getattr(settings, "PASSWORD_RESET_OTP_TTL", 600) // 60
-    app_name = getattr(settings, "APP_NAME", "EduKai")
+    """Send the OTP via SendGrid instead of Django SMTP."""
+    from django.conf import settings as django_settings
 
-    subject = f"Your Password Reset OTP - {app_name}"
-    from_email = settings.DEFAULT_FROM_EMAIL
-    text_body = f"Your OTP for password reset is: {otp}\nIt expires in {otp_ttl_minutes} minutes."
+    otp_ttl_minutes = getattr(django_settings, "PASSWORD_RESET_OTP_TTL", 600) // 60
+    app_name        = getattr(django_settings, "APP_NAME", "EduKai")
 
+    subject    = f"Your Password Reset OTP - {app_name}"
+    plain_text = (
+        f"Your OTP for password reset is: {otp}\n"
+        f"It expires in {otp_ttl_minutes} minutes.\n\n"
+        f"If you did not request this, please ignore this email."
+    )
     html_body = f"""
     <html>
-        <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
-            <div style="max-width: 480px; margin: auto; background: #fff; padding: 32px;
-                        border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-                <h2 style="color: #1a1a2e; margin-bottom: 8px;">Password Reset Request</h2>
-                <p style="color: #555; font-size: 15px;">
-                    We received a request to reset your password for <strong>{app_name}</strong>.
-                    Use the OTP below to proceed:
-                </p>
-                <div style="text-align: center; margin: 28px 0;">
-                    <span style="display: inline-block; background: #f0f4ff; border: 1px solid #c7d2fe;
-                                 color: #1a1a2e; font-size: 32px; font-weight: bold; letter-spacing: 8px;
-                                 padding: 12px 28px; border-radius: 6px;">
-                        {otp}
-                    </span>
-                </div>
-                <p style="color: #555; font-size: 14px;">
-                    This OTP expires in <strong>{otp_ttl_minutes} minutes</strong>.
-                    If you did not request this, you can safely ignore this email.
-                </p>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
-                <p style="color: #aaa; font-size: 12px; text-align: center;">
-                    &copy; {app_name}. All rights reserved.
-                </p>
+    <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px;">
+        <div style="max-width: 480px; margin: auto; background: #fff; padding: 32px;
+                    border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+            <h2 style="color: #1a1a2e; margin-bottom: 8px;">Password Reset Request</h2>
+            <p style="color: #555; font-size: 15px;">
+                We received a request to reset your password for
+                <strong>{app_name}</strong>. Use the OTP below to proceed:
+            </p>
+            <div style="text-align: center; margin: 28px 0;">
+                <span style="display: inline-block; background: #f0f4ff;
+                             border: 1px solid #c7d2fe; color: #1a1a2e;
+                             font-size: 32px; font-weight: bold;
+                             letter-spacing: 8px; padding: 12px 28px;
+                             border-radius: 6px;">
+                    {otp}
+                </span>
             </div>
-        </body>
+            <p style="color: #555; font-size: 14px;">
+                This OTP expires in <strong>{otp_ttl_minutes} minutes</strong>.
+                If you did not request this, you can safely ignore this email.
+            </p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;">
+            <p style="color: #aaa; font-size: 12px; text-align: center;">
+                &copy; {app_name}. All rights reserved.
+            </p>
+        </div>
+    </body>
     </html>
     """
 
-    msg = EmailMultiAlternatives(subject, text_body, from_email, [email])
-    msg.attach_alternative(html_body, "text/html")
-    msg.send()
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import (
+            Mail, From, To, Subject,
+            HtmlContent, PlainTextContent,
+        )
+
+        message = Mail(
+            from_email=From(
+                django_settings.SENDGRID_FROM_EMAIL,
+                django_settings.SENDGRID_FROM_NAME,
+            ),
+            to_emails=To(email),
+            subject=Subject(subject),
+            plain_text_content=PlainTextContent(plain_text),
+            html_content=HtmlContent(html_body),
+        )
+
+        sg       = SendGridAPIClient(django_settings.SENDGRID_API_KEY)
+        response = sg.send(message)
+
+        if response.status_code not in (200, 202):
+            raise Exception(f"SendGrid returned status {response.status_code}")
+
+    except Exception as exc:
+        # Re-raise so the caller can handle it
+        raise Exception(f"Failed to send OTP email via SendGrid: {exc}")

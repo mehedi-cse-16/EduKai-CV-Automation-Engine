@@ -400,6 +400,9 @@ CELERY_TASK_ANNOTATIONS = {
     "candidate.tasks.generate_pdf": {
         "rate_limit": "10/m",   # WeasyPrint is heavy
     },
+    "organization.tasks.geocode_organization": {
+        "rate_limit": "30/m",   # ✅ max 30/min = 1 every 2s, well under Nominatim limit
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -421,6 +424,13 @@ SENDGRID_FROM_EMAIL     = os.getenv("SENDGRID_FROM_EMAIL", "")
 SENDGRID_FROM_NAME      = os.getenv("SENDGRID_FROM_NAME", "Education Specialists Agency")
 SENDGRID_REPLY_TO_EMAIL = os.getenv("SENDGRID_REPLY_TO_EMAIL", "")
 SENDGRID_REPLY_TO_NAME  = os.getenv("SENDGRID_REPLY_TO_NAME", "")
+
+
+# ---------------------------------------------------------------------------
+# Pagination
+# ---------------------------------------------------------------------------
+REST_FRAMEWORK["DEFAULT_PAGINATION_CLASS"] = None  # we use manual pagination
+PAGE_SIZE = 20
 
 
 # ---------------------------------------------------------------------------

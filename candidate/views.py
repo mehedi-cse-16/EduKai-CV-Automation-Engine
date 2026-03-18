@@ -119,9 +119,10 @@ class BatchListView(APIView):
         tags=["Candidates"],
     )
     def get(self, request):
+        from candidate.utils.pagination import StandardPagination
+
         qs = CandidateUploadBatch.objects.all()
 
-        # Optional ordering
         ordering = request.query_params.get("ordering", "-created_at")
         allowed_orderings = {
             "created_at", "-created_at",
@@ -132,8 +133,10 @@ class BatchListView(APIView):
         if ordering in allowed_orderings:
             qs = qs.order_by(ordering)
 
-        serializer = UploadBatchSerializer(qs, many=True)
-        return Response(serializer.data)
+        paginator  = StandardPagination()
+        page       = paginator.paginate_queryset(qs, request)
+        serializer = UploadBatchSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class BatchStatusView(APIView):
@@ -175,13 +178,14 @@ class CandidateListView(APIView):
         tags=["Candidates"],
     )
     def get(self, request):
+        from candidate.utils.pagination import StandardPagination
+
         qs = Candidate.objects.select_related("batch").all()
 
-        # Simple filters
-        quality = request.query_params.get("quality_status")
+        quality      = request.query_params.get("quality_status")
         availability = request.query_params.get("availability_status")
-        ai_status = request.query_params.get("ai_processing_status")
-        source = request.query_params.get("source")
+        ai_status    = request.query_params.get("ai_processing_status")
+        source       = request.query_params.get("source")
 
         if quality:
             qs = qs.filter(quality_status=quality)
@@ -192,8 +196,10 @@ class CandidateListView(APIView):
         if source:
             qs = qs.filter(source=source)
 
-        serializer = CandidateListSerializer(qs, many=True)
-        return Response(serializer.data)
+        paginator = StandardPagination()
+        page      = paginator.paginate_queryset(qs, request)
+        serializer = CandidateListSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class CandidateDetailView(APIView):
@@ -851,13 +857,16 @@ class CandidateNearbyContactsView(APIView):
                 "distance_km": org_distances.get(org.id),
             })
 
-        return Response({
-            "candidate":          candidate.name,
-            "candidate_location": candidate.location,
-            "radius_km":          radius_km,
-            "total_contacts":     len(results),
-            "contacts":           results,
-        })
+        from candidate.utils.pagination import StandardPagination
+        paginator = StandardPagination()
+        page      = paginator.paginate_queryset(results, request)
+
+        response_data = paginator.get_paginated_response(page).data
+        response_data["candidate"]          = candidate.name
+        response_data["candidate_location"] = candidate.location
+        response_data["radius_km"]          = radius_km
+
+        return Response(response_data)
 
 
 class SendToContactsView(APIView):

@@ -44,13 +44,14 @@ class OrganizationListCreateView(APIView):
         tags=["Organizations"],
     )
     def get(self, request):
+        from candidate.utils.pagination import StandardPagination
+
         qs = Organization.objects.prefetch_related("contacts").all()
 
-        # ── Filters ───────────────────────────────────────────────────────
-        phase          = request.query_params.get("phase")
+        phase           = request.query_params.get("phase")
         local_authority = request.query_params.get("local_authority")
-        town           = request.query_params.get("town")
-        postcode       = request.query_params.get("postcode")
+        town            = request.query_params.get("town")
+        postcode        = request.query_params.get("postcode")
 
         if phase:
             qs = qs.filter(phase=phase)
@@ -61,28 +62,23 @@ class OrganizationListCreateView(APIView):
         if postcode:
             qs = qs.filter(postcode__icontains=postcode)
 
-        # ── Geo radius filter ─────────────────────────────────────────────
-        # ?lat=51.5074&lng=-0.1278&radius_km=10
+        # Geo radius filter
         lat       = request.query_params.get("lat")
         lng       = request.query_params.get("lng")
         radius_km = request.query_params.get("radius_km")
 
         if lat and lng and radius_km:
             try:
-                center     = (float(lat), float(lng))
-                radius_km  = float(radius_km)
+                from geopy.distance import geodesic
+                center    = (float(lat), float(lng))
+                radius_km = float(radius_km)
+                qs        = qs.exclude(latitude=None).exclude(longitude=None)
 
-                # Only orgs with coordinates
-                qs = qs.exclude(latitude=None).exclude(longitude=None)
-
-                # Filter in Python using geopy
                 filtered_ids = []
                 for org in qs:
                     org_point = (float(org.latitude), float(org.longitude))
-                    distance  = geodesic(center, org_point).km
-                    if distance <= radius_km:
+                    if geodesic(center, org_point).km <= radius_km:
                         filtered_ids.append(org.id)
-
                 qs = qs.filter(id__in=filtered_ids)
 
             except (ValueError, TypeError) as exc:
@@ -91,8 +87,10 @@ class OrganizationListCreateView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        serializer = OrganizationListSerializer(qs, many=True)
-        return Response(serializer.data)
+        paginator  = StandardPagination()
+        page       = paginator.paginate_queryset(qs, request)
+        serializer = OrganizationListSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         request=OrganizationCreateUpdateSerializer,
@@ -228,9 +226,10 @@ class AllContactsListView(APIView):
         tags=["Organization Contacts"],
     )
     def get(self, request):
+        from candidate.utils.pagination import StandardPagination
+
         qs = OrganizationContact.objects.select_related("organization").all()
 
-        # ── Optional filters ──────────────────────────────────────────────
         job_title = request.query_params.get("job_title")
         search    = request.query_params.get("search")
 
@@ -243,8 +242,10 @@ class AllContactsListView(APIView):
                 models.Q(organization__name__icontains=search)
             )
 
-        serializer = OrganizationContactSerializer(qs, many=True)
-        return Response(serializer.data)
+        paginator  = StandardPagination()
+        page       = paginator.paginate_queryset(qs, request)
+        serializer = OrganizationContactSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
 
 class ContactListCreateView(APIView):

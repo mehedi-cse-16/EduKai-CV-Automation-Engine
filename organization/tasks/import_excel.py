@@ -1,6 +1,8 @@
 import logging
 from celery import shared_task
 
+from organization.tasks.geocode import geocode_organization_task
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -196,8 +198,8 @@ def import_organizations_task(self, file_path: str):
             geocode_organization_task.apply_async(
                 args=[str(org.id)],
                 queue="default",
-                countdown=summary["organizations_created"] * 1,
-                # ✅ 1 second stagger — Nominatim allows max 1 req/sec
+                countdown=summary["organizations_created"] * 2,
+                # ✅ 2 second stagger — safer than 1s for 24000 orgs
             )
 
         except Exception as exc:

@@ -1,3 +1,5 @@
+import email
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
@@ -344,7 +346,7 @@ class ForgotPasswordView(APIView):
             try:
                 send_otp_email(email, otp)
             except Exception:
-                pass  # Never expose email/SMTP errors to the client
+                pass  # keep silent in production — don't reveal email existence
 
         cooldown = getattr(settings, "PASSWORD_RESET_RESEND_COOLDOWN", 60)
         return Response(
@@ -669,6 +671,7 @@ class ActivityLogView(APIView):
     )
     def get(self, request):
         from account.models import ActivityLog
+        from candidate.utils.pagination import StandardPagination
 
         qs = ActivityLog.objects.all()
 
@@ -680,12 +683,10 @@ class ActivityLogView(APIView):
         if unread == "true":
             qs = qs.filter(is_read=False)
 
-        try:
-            limit = min(int(request.query_params.get("limit", 50)), 100)
-        except ValueError:
-            limit = 50
+        unread_count = ActivityLog.objects.filter(is_read=False).count()
 
-        qs = qs[:limit]
+        paginator  = StandardPagination()
+        page       = paginator.paginate_queryset(qs, request)
 
         data = [
             {
@@ -700,16 +701,12 @@ class ActivityLogView(APIView):
                 "organization_id": str(log.organization_id) if log.organization_id else None,
                 "created_at":      log.created_at,
             }
-            for log in qs
+            for log in page
         ]
 
-        unread_count = ActivityLog.objects.filter(is_read=False).count()
-
-        return Response({
-            "unread_count": unread_count,
-            "total":        len(data),
-            "activities":   data,
-        })
+        response_data              = paginator.get_paginated_response(data).data
+        response_data["unread_count"] = unread_count
+        return Response(response_data)
 
 
 class MarkNotificationsReadView(APIView):
