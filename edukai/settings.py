@@ -322,7 +322,7 @@ if USE_S3:
     AWS_S3_REGION_NAME      = os.getenv("MINIO_REGION",       "us-east-1")
 
     AWS_S3_ADDRESSING_STYLE = "path"
-    AWS_QUERYSTRING_AUTH    = False
+    AWS_QUERYSTRING_AUTH    = True
     AWS_S3_FILE_OVERWRITE   = False
     AWS_DEFAULT_ACL         = None
 
