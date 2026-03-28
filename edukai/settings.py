@@ -380,14 +380,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000   # 500MB
 # ---------------------------------------------------------------------------
 # Celery Task Routing — separate queues per task type
 # ---------------------------------------------------------------------------
-from kombu import Queue
-
-CELERY_TASK_QUEUES = (
-    Queue("default"),
-    Queue("polling"),
-    Queue("pdf"),
-)
-
+CELERY_TASK_QUEUES = {
+    "default": {},
+    "polling": {},
+    "pdf":     {},
+}
 CELERY_TASK_DEFAULT_QUEUE = "default"
 
 CELERY_TASK_ROUTES = {
