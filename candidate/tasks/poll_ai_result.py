@@ -39,7 +39,7 @@ def poll_ai_result_task(self, candidate_id: str, ai_task_id: str):
 
     try:
         response = requests.get(
-            f"{settings.AI_BASE_URL}/api/v1/tasks/{ai_task_id}/",
+            f"{settings.AI_BASE_URL}/api/v1/tasks/{ai_task_id}",
             timeout=15,
         )
         response.raise_for_status()
