@@ -218,11 +218,25 @@ class AllContactsListView(APIView):
     """
     GET /api/organizations/contacts/
     Returns all contacts across all organizations.
+
+    Supports filters:
+      Contact-level:
+        - contact_name: partial match on contact_person
+        - contact_email: partial match on work_email
+        - job_title: partial match on contact job title
+        - search: partial match on contact_person, work_email, or organization name
+      Organization-level:
+        - org_name: partial match on organization name
+        - phase: exact match on organization phase
+        - gender: exact match on organization gender
+        - local_authority: partial match on organization local authority
+        - town: partial match on organization town
+        - postcode: partial match on organization postcode
     """
     permission_classes = [IsAuthenticated, IsSuperUser]
 
     @extend_schema(
-        responses={200: OrganizationContactSerializer(many=True)},
+        responses={200: OrganizationContactWithOrgSerializer(many=True)},
         summary="List all contacts across all organizations",
         tags=["Organization Contacts"],
     )
@@ -231,8 +245,11 @@ class AllContactsListView(APIView):
 
         qs = OrganizationContact.objects.select_related("organization").all()
 
-        job_title = request.query_params.get("job_title")
-        search    = request.query_params.get("search")
+        # Contact-level filters
+        job_title     = request.query_params.get("job_title")
+        search        = request.query_params.get("search")
+        contact_name  = request.query_params.get("contact_name")
+        contact_email = request.query_params.get("contact_email")
 
         if job_title:
             qs = qs.filter(job_title__icontains=job_title)
@@ -242,6 +259,31 @@ class AllContactsListView(APIView):
                 models.Q(work_email__icontains=search)     |
                 models.Q(organization__name__icontains=search)
             )
+        if contact_name:
+            qs = qs.filter(contact_person__icontains=contact_name)
+        if contact_email:
+            qs = qs.filter(work_email__icontains=contact_email)
+
+        # Organization-level filters
+        org_name        = request.query_params.get("org_name")
+        phase           = request.query_params.get("phase")
+        gender          = request.query_params.get("gender")
+        local_authority = request.query_params.get("local_authority")
+        town            = request.query_params.get("town")
+        postcode        = request.query_params.get("postcode")
+
+        if org_name:
+            qs = qs.filter(organization__name__icontains=org_name)
+        if phase:
+            qs = qs.filter(organization__phase__iexact=phase)
+        if gender:
+            qs = qs.filter(organization__gender__iexact=gender)
+        if local_authority:
+            qs = qs.filter(organization__local_authority__icontains=local_authority)
+        if town:
+            qs = qs.filter(organization__town__icontains=town)
+        if postcode:
+            qs = qs.filter(organization__postcode__icontains=postcode)
 
         paginator  = StandardPagination()
         page       = paginator.paginate_queryset(qs, request)
