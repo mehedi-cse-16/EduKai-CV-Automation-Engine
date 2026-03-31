@@ -49,13 +49,32 @@ class OrganizationListCreateView(APIView):
 
         qs = Organization.objects.prefetch_related("contacts").all()
 
-        phase           = request.query_params.get("phase")
-        local_authority = request.query_params.get("local_authority")
-        town            = request.query_params.get("town")
-        postcode        = request.query_params.get("postcode")
+        # New: generic text search (case-insensitive, partial)
+        search = request.query_params.get("search")
 
+        # Existing + new explicit filters
+        name            = request.query_params.get("name")            # partial match
+        phase           = request.query_params.get("phase")           # exact match
+        gender          = request.query_params.get("gender")          # exact match
+        local_authority = request.query_params.get("local_authority") # partial match
+        town            = request.query_params.get("town")            # partial match
+        postcode        = request.query_params.get("postcode")        # partial match
+
+        if search:
+            qs = qs.filter(
+                models.Q(name__icontains=search) |
+                models.Q(local_authority__icontains=search) |
+                models.Q(town__icontains=search) |
+                models.Q(postcode__icontains=search) |
+                models.Q(urn__icontains=search)
+            )
+
+        if name:
+            qs = qs.filter(name__icontains=name)
         if phase:
             qs = qs.filter(phase=phase)
+        if gender:
+            qs = qs.filter(gender=gender)
         if local_authority:
             qs = qs.filter(local_authority__icontains=local_authority)
         if town:
@@ -63,25 +82,22 @@ class OrganizationListCreateView(APIView):
         if postcode:
             qs = qs.filter(postcode__icontains=postcode)
 
-        # Geo radius filter
+        # Geo radius filter (unchanged) ...
         lat       = request.query_params.get("lat")
         lng       = request.query_params.get("lng")
         radius_km = request.query_params.get("radius_km")
-
         if lat and lng and radius_km:
             try:
                 from geopy.distance import geodesic
                 center    = (float(lat), float(lng))
                 radius_km = float(radius_km)
                 qs        = qs.exclude(latitude=None).exclude(longitude=None)
-
                 filtered_ids = []
                 for org in qs:
                     org_point = (float(org.latitude), float(org.longitude))
                     if geodesic(center, org_point).km <= radius_km:
                         filtered_ids.append(org.id)
                 qs = qs.filter(id__in=filtered_ids)
-
             except (ValueError, TypeError) as exc:
                 return Response(
                     {"detail": f"Invalid geo parameters: {exc}"},
