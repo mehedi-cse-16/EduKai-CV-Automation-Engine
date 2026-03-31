@@ -23,6 +23,7 @@ from organization.serializers import (
     OrganizationDetailSerializer,
     OrganizationCreateUpdateSerializer,
     OrganizationContactSerializer,
+    OrganizationContactWithOrgSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -244,7 +245,7 @@ class AllContactsListView(APIView):
 
         paginator  = StandardPagination()
         page       = paginator.paginate_queryset(qs, request)
-        serializer = OrganizationContactSerializer(page, many=True)
+        serializer = OrganizationContactWithOrgSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
 
