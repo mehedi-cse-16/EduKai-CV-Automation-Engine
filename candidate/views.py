@@ -196,6 +196,7 @@ class CandidateListView(APIView):
         # New filters
         search       = request.query_params.get("search")
         name         = request.query_params.get("name")
+        name_no_surname = request.query_params.get("name_without_surname")
         email        = request.query_params.get("email")
         whatsapp     = request.query_params.get("whatsapp_number")
         location     = request.query_params.get("location")
@@ -215,6 +216,8 @@ class CandidateListView(APIView):
             qs = qs.filter(source=source)
         if name:
             qs = qs.filter(name__icontains=name)
+        if name_no_surname:
+            qs = qs.filter(name_without_surname__icontains=name_no_surname)
         if email:
             qs = qs.filter(email__icontains=email)
         if whatsapp:
@@ -240,6 +243,7 @@ class CandidateListView(APIView):
         if search:
             qs = qs.filter(
                 models.Q(name__icontains=search) |
+                models.Q(name_without_surname__icontains=search) |
                 models.Q(email__icontains=search) |
                 models.Q(whatsapp_number__icontains=search) |
                 models.Q(location__icontains=search) |
@@ -457,7 +461,7 @@ class CandidateUpdateView(APIView):
         )
 
         # ── Regenerate PDF if any CV-visible field changed ────────────────
-        PDF_TRIGGER_FIELDS = {"job_titles", "name", "location"}
+        PDF_TRIGGER_FIELDS = {"job_titles", "name", "name_without_surname", "location"}
         should_regenerate = bool(PDF_TRIGGER_FIELDS & set(changed_fields))
 
         if should_regenerate and candidate.ai_enhanced_cv_content:
