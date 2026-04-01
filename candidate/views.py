@@ -187,11 +187,24 @@ class CandidateListView(APIView):
 
         qs = Candidate.objects.select_related("batch").all()
 
+        # Existing filters
         quality      = request.query_params.get("quality_status")
         availability = request.query_params.get("availability_status")
         ai_status    = request.query_params.get("ai_processing_status")
         source       = request.query_params.get("source")
 
+        # New filters
+        search       = request.query_params.get("search")
+        name         = request.query_params.get("name")
+        email        = request.query_params.get("email")
+        whatsapp     = request.query_params.get("whatsapp_number")
+        location     = request.query_params.get("location")
+        years_min    = request.query_params.get("years_min")
+        years_max    = request.query_params.get("years_max")
+        skills_param = request.query_params.getlist("skills") or []
+        job_titles_param = request.query_params.getlist("job_titles") or []
+
+        # Apply filters
         if quality:
             qs = qs.filter(quality_status=quality)
         if availability:
@@ -200,6 +213,39 @@ class CandidateListView(APIView):
             qs = qs.filter(ai_processing_status=ai_status)
         if source:
             qs = qs.filter(source=source)
+        if name:
+            qs = qs.filter(name__icontains=name)
+        if email:
+            qs = qs.filter(email__icontains=email)
+        if whatsapp:
+            qs = qs.filter(whatsapp_number__icontains=whatsapp)
+        if location:
+            qs = qs.filter(location__icontains=location)
+        if years_min:
+            try:
+                qs = qs.filter(years_of_experience__gte=float(years_min))
+            except ValueError:
+                pass
+        if years_max:
+            try:
+                qs = qs.filter(years_of_experience__lte=float(years_max))
+            except ValueError:
+                pass
+        for skill in skills_param:
+            if skill.strip():
+                qs = qs.filter(skills__icontains=skill.strip())
+        for jt in job_titles_param:
+            if jt.strip():
+                qs = qs.filter(job_titles__icontains=jt.strip())
+        if search:
+            qs = qs.filter(
+                models.Q(name__icontains=search) |
+                models.Q(email__icontains=search) |
+                models.Q(whatsapp_number__icontains=search) |
+                models.Q(location__icontains=search) |
+                models.Q(skills__icontains=search) |
+                models.Q(job_titles__icontains=search)
+            )
 
         paginator = StandardPagination()
         page      = paginator.paginate_queryset(qs, request)
