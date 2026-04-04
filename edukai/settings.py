@@ -373,10 +373,6 @@ EMAIL_FOOTER_LOGO_PATH = os.getenv(
     "EMAIL_FOOTER_LOGO_PATH",
     str(BASE_DIR / "media" / "images" / "EduKai_email_Logo.png"),
 )
-EMAIL_FOOTER_LOGO_PUBLIC_URL = os.getenv(
-    "EMAIL_FOOTER_LOGO_PUBLIC_URL",
-    "https://ik.imagekit.io/aboyfpcxn/EduKai_Logo.png"
-)
 
 
 # ---------------------------------------------------------------------------
