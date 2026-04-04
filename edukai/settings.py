@@ -369,7 +369,14 @@ AI_POLL_MAX_RETRIES      = env_int(os.getenv("AI_POLL_MAX_RETRIES"),      15)
 # PDF Generation
 # ---------------------------------------------------------------------------
 CV_LOGO_PATH = os.getenv("CV_LOGO_PATH", str(BASE_DIR / "media" / "images" / "CV_logo.png"))
-EMAIL_FOOTER_LOGO_PATH = os.getenv("EMAIL_FOOTER_LOGO_PATH", str(BASE_DIR / "media" / "images" / "EduKai_email_Logo.png"))
+EMAIL_FOOTER_LOGO_PATH = os.getenv(
+    "EMAIL_FOOTER_LOGO_PATH",
+    str(BASE_DIR / "media" / "images" / "EduKai_email_Logo.png"),
+)
+EMAIL_FOOTER_LOGO_PUBLIC_URL = os.getenv(
+    "EMAIL_FOOTER_LOGO_PUBLIC_URL",
+    "https://ik.imagekit.io/aboyfpcxn/EduKai_Logo.png"
+)
 
 
 # ---------------------------------------------------------------------------
