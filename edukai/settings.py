@@ -438,6 +438,12 @@ PAGE_SIZE = 20
 
 
 # ---------------------------------------------------------------------------
+# WhatsApp Integration
+# ---------------------------------------------------------------------------
+# WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "EduKaiWhatsAppVerifyToken12345")
+META_VERIFY_TOKEN = "test123"
+
+# ---------------------------------------------------------------------------
 # Default primary key
 # ---------------------------------------------------------------------------
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 )
 def send_to_contacts_task(self, candidate_id: str, contact_ids: list):
     from django.utils import timezone
-    from candidate.models import Candidate
+    from candidate.models import Candidate, CandidateToOrganizationsSubmissionLog, SubmissionStatus
     from organization.models import OrganizationContact
     from sendgrid import SendGridAPIClient
     from sendgrid.helpers.mail import (
@@ -56,47 +56,81 @@ def send_to_contacts_task(self, candidate_id: str, contact_ids: list):
         fallback_name="edukai_footer_logo.png",
     )
 
+    from django.db import transaction
+
     for contact in contacts:
         try:
-            plain_body = _build_personalized_plain_body(candidate.email_body, contact.contact_person)
-            html_body = _build_html_body(
-                plain_text=plain_body,
-                candidate=candidate,
-            )
-
-            message = Mail(
-                from_email=From(settings.SENDGRID_FROM_EMAIL, settings.SENDGRID_FROM_NAME),
-                to_emails=To(contact.work_email),
-                subject=Subject(candidate.email_subject),
-                plain_text_content=PlainTextContent(plain_body),
-                html_content=HtmlContent(html_body),
-            )
-
-            if settings.SENDGRID_REPLY_TO_EMAIL:
-                message.reply_to = ReplyTo(
-                    email=settings.SENDGRID_REPLY_TO_EMAIL,
-                    name=settings.SENDGRID_REPLY_TO_NAME or None,
+            # Atomic block to handle log update safely
+            with transaction.atomic():
+                # Get and lock the log entry
+                log_entry, created = CandidateToOrganizationsSubmissionLog.objects.select_for_update().get_or_create(
+                    candidate=candidate,
+                    contact=contact,
+                    defaults={
+                        "organization": contact.organization,
+                        "email": contact.work_email,
+                        "status": SubmissionStatus.PENDING,
+                    }
                 )
 
-            # Attach files
-            if profile_attachment:
-                message.add_attachment(profile_attachment)
-            if cv_attachment:
-                message.add_attachment(cv_attachment)
-            if footer_logo_attachment:
-                message.add_attachment(footer_logo_attachment)
+                # Prevent duplicate sends if already successful
+                if log_entry.status == SubmissionStatus.SENT:
+                    logger.info(f"[send_contacts] ⏭️ Skipping {contact.work_email}, already sent.")
+                    continue
 
-            response = sg.send(message)
-            if response.status_code in (200, 202):
-                summary["sent"] += 1
-                logger.info(f"[send_contacts] ✅ Sent to {contact.work_email}")
-            else:
-                raise Exception(f"Unexpected SendGrid status: {response.status_code}")
+                try:
+                    plain_body = _build_personalized_plain_body(candidate.email_body, contact.contact_person)
+                    html_body = _build_html_body(
+                        plain_text=plain_body,
+                        candidate=candidate,
+                    )
 
-        except Exception as exc:
-            summary["failed"] += 1
-            summary["errors"].append(f"{contact.work_email}: {exc}")
-            logger.error(f"[send_contacts] ❌ Failed to send to {contact.work_email}: {exc}")
+                    message = Mail(
+                        from_email=From(settings.SENDGRID_FROM_EMAIL, settings.SENDGRID_FROM_NAME),
+                        to_emails=To(contact.work_email),
+                        subject=Subject(candidate.email_subject),
+                        plain_text_content=PlainTextContent(plain_body),
+                        html_content=HtmlContent(html_body),
+                    )
+
+                    if settings.SENDGRID_REPLY_TO_EMAIL:
+                        message.reply_to = ReplyTo(
+                            email=settings.SENDGRID_REPLY_TO_EMAIL,
+                            name=settings.SENDGRID_REPLY_TO_NAME or None,
+                        )
+
+                    # Attach files
+                    if profile_attachment:
+                        message.add_attachment(profile_attachment)
+                    if cv_attachment:
+                        message.add_attachment(cv_attachment)
+                    if footer_logo_attachment:
+                        message.add_attachment(footer_logo_attachment)
+
+                    response = sg.send(message)
+                    if response.status_code in (200, 202):
+                        summary["sent"] += 1
+                        logger.info(f"[send_contacts] ✅ Sent to {contact.work_email}")
+                        log_entry.status = SubmissionStatus.SENT
+                        log_entry.sent_at = timezone.now()
+                        log_entry.error_message = None
+                        log_entry.save(update_fields=["status", "sent_at", "error_message", "updated_at"])
+                    else:
+                        raise Exception(f"Unexpected SendGrid status: {response.status_code}")
+
+                except Exception as exc:
+                    summary["failed"] += 1
+                    summary["errors"].append(f"{contact.work_email}: {exc}")
+                    logger.error(f"[send_contacts] ❌ Failed to send to {contact.work_email}: {exc}")
+                    log_entry.status = SubmissionStatus.FAILED
+                    log_entry.error_message = str(exc)
+                    log_entry.save(update_fields=["status", "error_message", "updated_at"])
+
+        except Exception as outer_exc:
+            logger.error(f"[send_contacts] 💥 Critical error handling log for {contact.work_email}: {outer_exc}")
+            summary["errors"].append(f"System error for {contact.work_email}")
+
+
 
     if summary["sent"] > 0:
         from django.db.models import F

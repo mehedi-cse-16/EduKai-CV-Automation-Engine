@@ -345,3 +345,69 @@ def log_candidate_deletion(sender, instance, **kwargs):
         f"[signal] Candidate {instance.id} ({instance.name!r}) "
         f"deleted from DB."
     )
+
+
+# ---------------------------------------------------------------------------
+# Email Submission Tracking Log
+# ---------------------------------------------------------------------------
+class SubmissionStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    SENT = "sent", "Sent"
+    FAILED = "failed", "Failed"
+
+class CandidateToOrganizationsSubmissionLog(models.Model):
+    """
+    Tracks which candidate was sent to which organization/contact.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    candidate = models.ForeignKey(
+        Candidate,
+        on_delete=models.CASCADE,
+        related_name="submission_logs",
+    )
+    organization = models.ForeignKey(
+        "organization.Organization",
+        on_delete=models.CASCADE,
+        related_name="candidate_submissions",
+    )
+    contact = models.ForeignKey(
+        "organization.OrganizationContact",
+        on_delete=models.CASCADE,
+        related_name="candidate_submissions",
+    )
+    
+    email = models.EmailField(help_text="The email address it was sent to.")
+    
+    status = models.CharField(
+        max_length=20,
+        choices=SubmissionStatus.choices,
+        default=SubmissionStatus.PENDING,
+        db_index=True,
+    )
+    
+    sent_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Candidate Submission Log"
+        verbose_name_plural = "Candidate Submission Logs"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["candidate", "contact"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["candidate", "contact"],
+                name="unique_candidate_contact_submission"
+            )
+        ]
+
+
+    def __str__(self):
+        return f"{self.candidate.name} -> {self.email} ({self.status})"
+

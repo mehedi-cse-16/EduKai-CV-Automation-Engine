@@ -14,18 +14,19 @@ from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
 from rest_framework.generics import get_object_or_404
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from account.permissions import IsSuperUser
-from candidate.models import Candidate, CandidateUploadBatch, SourceChoices
+from candidate.models import Candidate, CandidateUploadBatch, SourceChoices, CandidateToOrganizationsSubmissionLog
 from candidate.serializers import (
     BulkCVUploadSerializer,
     CandidateDetailSerializer,
     CandidateListSerializer,
     UploadBatchSerializer,
     CandidateUpdateSerializer,
+    CandidateToOrganizationsSubmissionLogSerializer,
 )
 from candidate.tasks.process_cv import process_cv_task
 
@@ -991,6 +992,24 @@ class SendToContactsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # ── Create Log Entries (Immediately) ──────────────────────────────
+        from candidate.models import CandidateToOrganizationsSubmissionLog, SubmissionStatus
+        from organization.models import OrganizationContact
+        
+        # Fetch contacts to get organization relations for logging
+        contacts_to_log = OrganizationContact.objects.select_related("organization").filter(id__in=contact_ids)
+        
+        for contact in contacts_to_log:
+            CandidateToOrganizationsSubmissionLog.objects.get_or_create(
+                candidate=candidate,
+                contact=contact,
+                defaults={
+                    "organization": contact.organization,
+                    "email": contact.work_email,
+                    "status": SubmissionStatus.PENDING,
+                }
+            )
+
         # ── Queue task ────────────────────────────────────────────────────
         from candidate.tasks.send_to_contacts import send_to_contacts_task
         task = send_to_contacts_task.apply_async(
@@ -1002,6 +1021,7 @@ class SendToContactsView(APIView):
             f"[send_contacts] Queued for candidate '{candidate.name}' "
             f"→ {len(contact_ids)} contacts. Task: {task.id}"
         )
+
 
         return Response(
             {
@@ -1056,3 +1076,94 @@ class SendToContactsStatusView(APIView):
             "status":  result.state.lower(),
             "message": "Processing.",
         })
+
+
+class CandidateSubmissionLogListView(APIView):
+    """
+    GET /api/candidates/email-logs/
+    GET /api/candidates/email-logs/<candidate_id>/
+    Returns email submission logs with filtering and pagination.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: CandidateToOrganizationsSubmissionLogSerializer(many=True)},
+        summary="Get email submission logs",
+        tags=["Candidates"],
+    )
+    def get(self, request, candidate_id=None):
+        # 1. Base Queryset optimized with select_related
+        logs = CandidateToOrganizationsSubmissionLog.objects.select_related(
+            "candidate", "organization", "contact"
+        ).order_by("-created_at")
+
+        # 2. Filter by candidate_id from URL if present
+        if candidate_id:
+            logs = logs.filter(candidate_id=candidate_id)
+
+        # 3. Apply Query Filters
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            logs = logs.filter(status__iexact=status_filter)
+
+        org_filter = request.query_params.get("organization")
+        if org_filter:
+            # Handles both UUID and name if needed, but assuming UUID here
+            logs = logs.filter(organization_id=org_filter)
+
+        cand_param = request.query_params.get("candidate")
+        if cand_param:
+            logs = logs.filter(candidate_id=cand_param)
+
+        # 4. Pagination
+        from candidate.utils.pagination import StandardPagination
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(logs, request)
+        
+        serializer = CandidateToOrganizationsSubmissionLogSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
+
+import json
+import logging
+from django.conf import settings
+from django.http import HttpResponse
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+
+logger = logging.getLogger(__name__)
+@method_decorator(csrf_exempt, name="dispatch")
+class WhatsAppWebhookView(APIView):
+    permission_classes = []
+
+    # 🔹 Meta verification
+    def get(self, request):
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
+
+        if mode == "subscribe" and token == settings.META_VERIFY_TOKEN:
+            return HttpResponse(challenge, status=200)
+
+        return HttpResponse("Verification failed", status=403)
+
+    # 🔹 Receive messages
+    def post(self, request):
+        try:
+            data = request.data
+
+            # পুরো payload print/log
+            logger.info("Incoming Webhook:")
+            logger.info(json.dumps(data, indent=2))
+
+            print("🔥 WEBHOOK HIT")
+            print(json.dumps(data, indent=2))
+
+        except Exception as e:
+            logger.error(f"Error: {str(e)}")
+
+        return Response({"status": "received"}, status=status.HTTP_200_OK)

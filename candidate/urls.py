@@ -15,6 +15,9 @@ from candidate.views import (
     CandidateNearbyContactsView,
     SendToContactsView,
     SendToContactsStatusView,
+    CandidateSubmissionLogListView,
+
+    WhatsAppWebhookView,
 )
 
 app_name = "candidate"
@@ -34,8 +37,13 @@ urlpatterns = [
     path("<uuid:candidate_id>/rewrite/",         CandidateRewriteView.as_view(),       name="candidate_rewrite"),
     path("<uuid:candidate_id>/rewrite/status/",  CandidateRewriteStatusView.as_view(), name="candidate_rewrite_status"),
     path("<uuid:candidate_id>/send-to-contacts/", SendToContactsView.as_view(), name="send_to_contacts"),
+    path("email-logs/", CandidateSubmissionLogListView.as_view(), name="all_email_logs"),
+    path("email-logs/<uuid:candidate_id>/", CandidateSubmissionLogListView.as_view(), name="candidate_email_logs"),
+
 
     path("batches/",                            BatchListView.as_view(),        name="batch_list"),
     path("batches/<uuid:batch_id>/",            BatchStatusView.as_view(),     name="batch_status"),
     path("batches/<uuid:batch_id>/delete/",     BatchDeleteView.as_view(),     name="batch_delete"),
+
+    path("webhook/", WhatsAppWebhookView.as_view()),
 ]

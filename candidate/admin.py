@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 import json
 
-from candidate.models import Candidate, CandidateUploadBatch
+from candidate.models import Candidate, CandidateUploadBatch, CandidateToOrganizationsSubmissionLog
 
 
 # =============================================================================
@@ -314,3 +314,39 @@ class CandidateAdmin(admin.ModelAdmin):
             ai_failure_reason=None,
         )
         self.message_user(request, f"{updated} candidate(s) AI status reset.")
+
+
+# =============================================================================
+# Candidate Submission Log Admin
+# =============================================================================
+@admin.register(CandidateToOrganizationsSubmissionLog)
+class CandidateToOrganizationsSubmissionLogAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "candidate",
+        "organization",
+        "contact",
+        "email",
+        "status",
+        "sent_at",
+        "created_at",
+    )
+    list_filter = (
+        "status",
+        "sent_at",
+        "created_at",
+    )
+    search_fields = (
+        "candidate__name",
+        "organization__name",
+        "contact__contact_person",
+        "email",
+    )
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "sent_at",
+    )
+    ordering = ("-created_at",)
+    date_hierarchy = "created_at"

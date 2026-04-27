@@ -4,7 +4,7 @@ import json
 from django.conf import settings
 from rest_framework import serializers
 
-from candidate.models import Candidate, CandidateUploadBatch
+from candidate.models import Candidate, CandidateUploadBatch, CandidateToOrganizationsSubmissionLog
 
 # =============================================================================
 # Bulk Upload Serializer — for validating the initial batch upload request
@@ -396,3 +396,34 @@ class CandidateUpdateSerializer(serializers.ModelSerializer):
                 f"Invalid quality status. Choose from: {valid}"
             )
         return value
+
+
+class CandidateToOrganizationsSubmissionLogSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the candidate email submission logs with readable names and locations.
+    """
+    candidate_name = serializers.CharField(source="candidate.name", read_only=True)
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+    organization_location = serializers.CharField(source="organization.town", read_only=True)
+    contact_name = serializers.CharField(source="contact.contact_person", read_only=True)
+    contact_email = serializers.CharField(source="contact.work_email", read_only=True)
+
+    class Meta:
+        model = CandidateToOrganizationsSubmissionLog
+        fields = [
+            "id",
+            "candidate",
+            "candidate_name",
+            "organization",
+            "organization_name",
+            "organization_location",
+            "contact",
+            "contact_name",
+            "contact_email",
+            "email",
+            # "status",
+            # "sent_at",
+            # "error_message",
+            "created_at",
+        ]
+
